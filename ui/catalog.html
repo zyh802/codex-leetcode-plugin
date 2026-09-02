@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Codex LeetCode 题库</title>
+  </head>
+  <body>
+    <main id="app" aria-live="polite">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">LC</span>
+          <span>
+            <strong>力扣题库</strong>
+            <small id="catalog-summary">正在连接…</small>
+          </span>
+        </div>
+        <button id="sync-button" class="button secondary" type="button">同步目录</button>
+      </header>
+
+      <section class="toolbar" aria-label="题库工具栏">
+        <label class="search-box">
+          <span aria-hidden="true">⌕</span>
+          <input id="search-input" type="search" maxlength="200" autocomplete="off" placeholder="搜索题号、标题或 slug" />
+        </label>
+        <span id="sync-status" class="status" role="status"></span>
+      </section>
+
+      <section class="workspace">
+        <aside class="catalog-pane" aria-label="题目目录">
+          <div id="problem-list" class="problem-list"></div>
+          <button id="load-more" class="load-more" type="button" hidden>加载更多</button>
+          <div id="empty-state" class="empty-state" hidden>
+            <strong>本地题库还是空的</strong>
+            <span>点击“同步目录”获取全部题目的轻量目录。</span>
+          </div>
+        </aside>
+
+        <article id="detail-pane" class="detail-pane">
+          <div id="detail-placeholder" class="detail-placeholder">
+            <span class="detail-glyph" aria-hidden="true">{ }</span>
+            <strong>选择一道题开始</strong>
+            <span>题面会在点击后从力扣实时获取，不写入本地缓存。</span>
+          </div>
+          <div id="detail-loading" class="detail-placeholder" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <strong>正在获取最新题面…</strong>
+          </div>
+          <div id="detail-content" hidden>
+            <div class="detail-heading">
+              <div>
+                <p id="detail-kicker" class="kicker"></p>
+                <h1 id="detail-title"></h1>
+              </div>
+              <span id="detail-difficulty" class="difficulty"></span>
+            </div>
+            <div id="detail-tags" class="tags"></div>
+            <div id="statement" class="statement"></div>
+            <section class="solution-panel" aria-labelledby="solution-heading">
+              <div>
+                <h2 id="solution-heading">创建本地解答</h2>
+                <p>选择语言和保存目录。已有代码不会被覆盖。</p>
+              </div>
+              <div class="solution-controls">
+                <label>
+                  <span>语言</span>
+                  <select id="language-select"></select>
+                </label>
+                <label class="directory-field">
+                  <span>解答根目录</span>
+                  <input id="directory-input" type="text" placeholder="例如 D:\Code\leetcode-solutions" />
+                </label>
+                <button id="create-button" class="button primary" type="button">创建代码</button>
+              </div>
+              <p id="create-result" class="create-result" role="status"></p>
+            </section>
+          </div>
+        </article>
+      </section>
+    </main>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

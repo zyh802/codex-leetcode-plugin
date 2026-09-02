@@ -1,0 +1,43 @@
+{
+  "name": "codex-leecode-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A local-first LeetCode catalog, judge, and review plugin for Codex.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build": "npm run build:server && npm run build:ui",
+    "build:server": "tsc -p tsconfig.json",
+    "build:ui": "vite build",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "npm run typecheck:server && npm run typecheck:ui",
+    "typecheck:server": "tsc -p tsconfig.json --noEmit",
+    "typecheck:ui": "tsc -p tsconfig.ui.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "smoke:live": "npm run build && node scripts/live-smoke.mjs",
+    "smoke:mcp": "npm run build && node scripts/mcp-smoke.mjs",
+    "check": "npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/ext-apps": "^1.7.5",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@napi-rs/keyring": "^2.0.0",
+    "better-sqlite3": "^13.0.3",
+    "sanitize-html": "^2.17.7",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.4.0",
+    "@types/sanitize-html": "^2.16.1",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2",
+    "vite-plugin-singlefile": "^2.3.3",
+    "vitest": "^4.1.11"
+  }
+}

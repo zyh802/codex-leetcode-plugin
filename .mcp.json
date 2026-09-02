@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "leetcode": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "-e",
+        "const f=require('node:fs'),p=require('node:path'),o=require('node:os'),u=require('node:url');let r=process.env.PLUGIN_ROOT||process.env.CLAUDE_PLUGIN_ROOT,e=r&&p.join(r,'dist','index.js');if(!e||!f.existsSync(e)){const c=p.join(process.env.CODEX_HOME||p.join(o.homedir(),'.codex'),'plugins','cache'),a=[];for(const m of f.existsSync(c)?f.readdirSync(c):[]){const b=p.join(c,m,'codex-leecode-plugin');for(const v of f.existsSync(b)?f.readdirSync(b):[]){const d=p.join(b,v),x=p.join(d,'dist','index.js');if(f.existsSync(x))a.push([f.statSync(d).mtimeMs,x])}}a.sort((x,y)=>y[0]-x[0]);e=a[0]?.[1]}if(!e)throw new Error('Cannot locate the installed codex-leecode-plugin');import(u.pathToFileURL(e).href)"
+      ]
+    }
+  }
+}

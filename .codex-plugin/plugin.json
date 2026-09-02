@@ -1,0 +1,29 @@
+{
+  "name": "codex-leecode-plugin",
+  "version": "0.1.0",
+  "description": "Browse a complete local LeetCode catalog, open selected problem details live, edit solutions, run and submit code, and request Codex reviews.",
+  "author": {
+    "name": "zyh802",
+    "url": "https://github.com/zyh802"
+  },
+  "homepage": "https://github.com/zyh802/codex-leecode-plugin",
+  "repository": "https://github.com/zyh802/codex-leecode-plugin",
+  "keywords": ["leetcode", "coding", "practice", "judge", "review"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Codex LeetCode",
+    "shortDescription": "Complete catalog with live problem details",
+    "longDescription": "Synchronize the complete LeetCode catalog locally, fetch only the selected problem detail live without caching it, work on solutions in Codex, use LeetCode's remote judge, and ask Codex for evidence-based reviews.",
+    "developerName": "zyh802",
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Write", "Interactive"],
+    "websiteURL": "https://github.com/zyh802/codex-leecode-plugin",
+    "defaultPrompt": [
+      "打开本地力扣题库并帮我选一道题。",
+      "运行当前力扣解答并解释结果。",
+      "评审当前力扣代码，但不要直接替换我的解法。"
+    ],
+    "brandColor": "#FFA116"
+  }
+}
