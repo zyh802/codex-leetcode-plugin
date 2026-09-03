@@ -5,7 +5,7 @@
   "description": "A local-first LeetCode catalog, judge, and review plugin for Codex.",
   "type": "module",
   "engines": {
-    "node": ">=22.12"
+    "node": ">=22.22.2"
   },
   "scripts": {
     "build": "npm run build:server && npm run build:ui",

@@ -44,7 +44,7 @@ The browser UI is a React application whose source follows the same `App / route
 
 ## Development
 
-Requirements: Node.js 22.12 or newer. Browser login requires an installed Chrome or Edge; Windows tries Edge first, while macOS/Linux try Chrome first.
+Requirements: Node.js 22.22.2 or newer. Browser login requires an installed Chrome or Edge; Windows tries Edge first, while macOS/Linux try Chrome first.
 
 ```powershell
 npm install
