@@ -13,7 +13,8 @@ import { WorkspaceManager } from "./workspace/workspace-manager.js";
 import { RemoteJudgeService } from "./judge/remote-judge-service.js";
 import { ReviewContextService } from "./review/review-context-service.js";
 import { ProblemService } from "./problem/problem-service.js";
-import { registerCatalogUi } from "./ui/register-catalog-ui.js";
+import { CatalogHttpServer } from "./ui/catalog-http-server.js";
+import { registerCatalogHttp } from "./ui/register-catalog-http.js";
 
 const config = loadConfig();
 const database = new LeetCodeDatabase(config.databasePath);
@@ -29,6 +30,20 @@ const workspaceManager = new WorkspaceManager(database);
 const remoteJudge = new RemoteJudgeService(database, adapter, sessionService, workspaceManager);
 const reviewContext = new ReviewContextService(database, workspaceManager, problemService);
 const server = new McpServer({ name: "codex-leecode-plugin", version: "0.1.0" });
+const catalogHttp = new CatalogHttpServer({
+  getCatalogStats: () => database.getCatalogStats(),
+  searchProblems: (query, limit, offset) => database.searchProblems(query, limit, offset),
+  startFullSync: () => syncEngine.startFullSync(),
+  getSyncStatus: (runId) => database.getSyncStatus(runId),
+  getProblem: (problemId) => problemService.getProblem(problemId),
+  createSolution: async (problemId, langSlug, directory) => {
+    const template = await problemService.getSolutionTemplate(problemId, langSlug);
+    return workspaceManager.createSolution(template, directory);
+  },
+  readSolution: (filePath, directory) => workspaceManager.readSolutionForEditing(filePath, directory),
+  saveSolution: (filePath, directory, content, expectedHash) =>
+    workspaceManager.saveSolutionFromEditor(filePath, directory, content, expectedHash),
+});
 
 registerTools(
   server,
@@ -40,11 +55,16 @@ registerTools(
   remoteJudge,
   reviewContext,
 );
-registerCatalogUi(server, database);
+registerCatalogHttp(server, catalogHttp);
 
+let shuttingDown = false;
 const shutdown = (): void => {
-  database.close();
-  process.exit(0);
+  if (shuttingDown) return;
+  shuttingDown = true;
+  void catalogHttp.close().finally(() => {
+    database.close();
+    process.exit(0);
+  });
 };
 process.once("SIGINT", shutdown);
 process.once("SIGTERM", shutdown);

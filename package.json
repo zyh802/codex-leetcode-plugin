@@ -23,7 +23,6 @@
     "check": "npm run typecheck && npm test"
   },
   "dependencies": {
-    "@modelcontextprotocol/ext-apps": "^1.7.5",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@napi-rs/keyring": "^2.0.0",
     "better-sqlite3": "^13.0.3",

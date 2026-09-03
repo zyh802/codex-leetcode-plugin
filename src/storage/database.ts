@@ -174,7 +174,17 @@ export class LeetCodeDatabase {
         p.title LIKE ? ESCAPE '\\'
       )
       GROUP BY p.id
-      ORDER BY CAST(p.frontend_id AS INTEGER), p.frontend_id
+      ORDER BY
+        CASE
+          WHEN p.frontend_id <> '' AND p.frontend_id NOT GLOB '*[^0-9]*' THEN 0
+          ELSE 1
+        END,
+        CASE
+          WHEN p.frontend_id <> '' AND p.frontend_id NOT GLOB '*[^0-9]*'
+            THEN CAST(p.frontend_id AS INTEGER)
+        END,
+        p.frontend_id COLLATE NOCASE,
+        p.id
       LIMIT ? OFFSET ?
     `).all(ENDPOINT_CN, normalized, pattern, pattern, pattern, limit, offset) as Array<{
       id: number;

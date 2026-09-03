@@ -30,22 +30,32 @@ const transport = new StdioClientTransport({
 try {
   await client.connect(transport);
   const tools = await client.listTools();
-  const resources = await client.listResources();
   const health = await client.callTool({ name: "leetcode_health", arguments: {} });
-  const catalog = await client.callTool({ name: "leetcode_open_catalog", arguments: {} });
-  const ui = await client.readResource({ uri: "ui://codex-leetcode/catalog.html" });
-  const uiText = ui.contents.find((content) => "text" in content)?.text ?? "";
+  const catalog = await client.callTool({
+    name: "leetcode_open_catalog",
+    arguments: { workspaceRoot: pluginRoot },
+  });
+  const launch = catalog.structuredContent;
+  if (!launch?.ok || !launch.data?.url || !launch.data?.origin) {
+    throw new Error("Catalog tool did not return a local browser URL.");
+  }
+  const redirect = await fetch(launch.data.url, { redirect: "manual" });
+  const cookie = redirect.headers.get("set-cookie") ?? "";
+  const location = redirect.headers.get("location") ?? "/";
+  const page = await fetch(`${launch.data.origin}${location}`, { headers: { Cookie: cookie } });
+  const pageText = await page.text();
   process.stdout.write(`${JSON.stringify({
     toolNames: tools.tools.map((tool) => tool.name),
     catalogToolMeta: tools.tools.find((tool) => tool.name === "leetcode_open_catalog")?._meta,
-    resourceUris: resources.resources.map((resource) => resource.uri),
-    ui: {
-      mimeType: ui.contents[0]?.mimeType,
-      bytes: Buffer.byteLength(uiText, "utf8"),
-      containsCatalogTitle: uiText.includes("Codex LeetCode 题库"),
+    localHttp: {
+      origin: launch.data.origin,
+      redirectStatus: redirect.status,
+      pageStatus: page.status,
+      bytes: Buffer.byteLength(pageText, "utf8"),
+      containsCatalogTitle: pageText.includes("Codex LeetCode 题库"),
     },
     health: health.content,
-    catalog: catalog.structuredContent,
+    catalog: launch,
   }, null, 2)}\n`);
 } finally {
   await client.close();

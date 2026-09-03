@@ -1,6 +1,6 @@
 {
   "name": "codex-leecode-plugin",
-  "version": "0.1.0",
+  "version": "0.1.0+codex.20260903060700",
   "description": "Browse a complete local LeetCode catalog, open selected problem details live, edit solutions, run and submit code, and request Codex reviews.",
   "author": {
     "name": "zyh802",
@@ -8,7 +8,13 @@
   },
   "homepage": "https://github.com/zyh802/codex-leecode-plugin",
   "repository": "https://github.com/zyh802/codex-leecode-plugin",
-  "keywords": ["leetcode", "coding", "practice", "judge", "review"],
+  "keywords": [
+    "leetcode",
+    "coding",
+    "practice",
+    "judge",
+    "review"
+  ],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
@@ -17,12 +23,16 @@
     "longDescription": "Synchronize the complete LeetCode catalog locally, fetch only the selected problem detail live without caching it, work on solutions in Codex, use LeetCode's remote judge, and ask Codex for evidence-based reviews.",
     "developerName": "zyh802",
     "category": "Developer Tools",
-    "capabilities": ["Read", "Write", "Interactive"],
+    "capabilities": [
+      "Read",
+      "Write",
+      "Interactive"
+    ],
     "websiteURL": "https://github.com/zyh802/codex-leecode-plugin",
     "defaultPrompt": [
-      "打开本地力扣题库并帮我选一道题。",
-      "运行当前力扣解答并解释结果。",
-      "评审当前力扣代码，但不要直接替换我的解法。"
+      "\u6253\u5f00\u672c\u5730\u529b\u6263\u9898\u5e93\u5e76\u5e2e\u6211\u9009\u4e00\u9053\u9898\u3002",
+      "\u8fd0\u884c\u5f53\u524d\u529b\u6263\u89e3\u7b54\u5e76\u89e3\u91ca\u7ed3\u679c\u3002",
+      "\u8bc4\u5ba1\u5f53\u524d\u529b\u6263\u4ee3\u7801\uff0c\u4f46\u4e0d\u8981\u76f4\u63a5\u66ff\u6362\u6211\u7684\u89e3\u6cd5\u3002"
     ],
     "brandColor": "#FFA116"
   }

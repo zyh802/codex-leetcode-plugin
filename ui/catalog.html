@@ -12,7 +12,7 @@
           <span class="brand-mark" aria-hidden="true">LC</span>
           <span>
             <strong>力扣题库</strong>
-            <small id="catalog-summary">正在连接…</small>
+            <small id="catalog-summary">正在连接本地服务…</small>
           </span>
         </div>
         <button id="sync-button" class="button secondary" type="button">同步目录</button>
@@ -24,6 +24,17 @@
           <input id="search-input" type="search" maxlength="200" autocomplete="off" placeholder="搜索题号、标题或 slug" />
         </label>
         <span id="sync-status" class="status" role="status"></span>
+      </section>
+
+      <section class="solution-settings" aria-label="公共解答目录设置">
+        <div class="solution-settings-label">
+          <strong>解答目录</strong>
+          <small id="workspace-root-hint">默认使用当前工作区</small>
+        </div>
+        <input id="directory-input" type="text" autocomplete="off" placeholder="当前工作区路径" />
+        <button id="save-directory-button" class="button secondary" type="button">应用</button>
+        <button id="reset-directory-button" class="button quiet" type="button">恢复工作区</button>
+        <span id="directory-status" class="directory-status" role="status"></span>
       </section>
 
       <section class="workspace">
@@ -59,22 +70,42 @@
             <section class="solution-panel" aria-labelledby="solution-heading">
               <div>
                 <h2 id="solution-heading">创建本地解答</h2>
-                <p>选择语言和保存目录。已有代码不会被覆盖。</p>
+                <p id="solution-target">选择语言后创建；所有题目共用顶部的解答目录，已有代码不会被覆盖。</p>
               </div>
               <div class="solution-controls">
                 <label>
                   <span>语言</span>
                   <select id="language-select"></select>
                 </label>
-                <label class="directory-field">
-                  <span>解答根目录</span>
-                  <input id="directory-input" type="text" placeholder="例如 D:\Code\leetcode-solutions" />
-                </label>
                 <button id="create-button" class="button primary" type="button">创建代码</button>
               </div>
               <p id="create-result" class="create-result" role="status"></p>
             </section>
           </div>
+          <section id="code-editor" class="code-editor" aria-labelledby="editor-heading" hidden>
+            <div class="editor-heading">
+              <div>
+                <h2 id="editor-heading">代码编辑器</h2>
+                <p id="editor-file-path"></p>
+              </div>
+              <div class="editor-actions">
+                <button id="copy-path-button" class="button quiet" type="button">复制路径</button>
+                <button id="save-code-button" class="button primary" type="button">保存代码</button>
+              </div>
+            </div>
+            <textarea
+              id="code-input"
+              aria-label="解答代码"
+              autocomplete="off"
+              autocapitalize="off"
+              spellcheck="false"
+              wrap="off"
+            ></textarea>
+            <div class="editor-footer">
+              <span id="editor-status" role="status">已加载</span>
+              <span>⌘/Ctrl+S 保存 · Tab 缩进</span>
+            </div>
+          </section>
         </article>
       </section>
     </main>

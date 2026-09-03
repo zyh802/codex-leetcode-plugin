@@ -7,7 +7,9 @@ description: Use the complete locally synchronized LeetCode catalog to choose pr
 
 Use the plugin's MCP tools whenever the user asks to browse LeetCode problems, open a problem, work on a solution, run or submit code, or review a solution.
 
-When the user asks to browse, choose, or open the visual problem catalog, call `leetcode_open_catalog`. The UI can synchronize the complete lightweight directory, search and page through it, fetch a selected problem live, and create a language-specific solution. Keep authentication, Run/Submit, and review in the conversational tool workflow until those visual panels are available.
+When the user asks to browse, choose, or open the visual problem catalog, call `leetcode_open_catalog` and pass the current task workspace's absolute root path as `workspaceRoot`. It starts a loopback-only local HTTP app and returns a launch URL. Immediately open that URL in the Codex built-in Browser panel on the right when the host provides its browser-panel opener; do not embed it in the conversation as an MCP App. If the browser panel is unavailable, return the clickable local URL as the fallback.
+
+The local web app can synchronize the complete lightweight directory, search and page through it, fetch a selected problem live, and create a language-specific solution. Its shared solution directory defaults to the current task workspace and is changed only through the catalog-level directory control, never through an individual problem panel. Creating or reusing a solution must immediately open it in the built-in editor; saves use the file hash to reject overwriting external changes. Keep authentication, Run/Submit, and review in the conversational tool workflow until those browser panels are available. The local HTTP server is owned by the plugin process and must listen only on `127.0.0.1`.
 
 ## Catalog rules
 

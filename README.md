@@ -14,7 +14,7 @@ A Codex plugin for synchronizing the complete LeetCode CN problem catalog, openi
 - Compatibility with `@lc app/id/lang` and `@lc code=start/end` markers.
 - Remote Run, Submit, judge polling, normalized results, and code-hash-bound submission confirmation.
 - Scoped Codex review context with a contest guard.
-- MCP Apps visual catalog: synchronize the directory, search or page through the catalog, open live problem details, choose a language, and create a solution file.
+- Loopback-only local HTTP catalog with a built-in code editor: create or reuse a solution, edit it immediately, and save with conflict protection while the conversation remains available.
 
 Authentication, Run/Submit, and Codex review remain available through the conversational MCP tools; their visual panels are the next UI increment.
 
@@ -26,14 +26,15 @@ After installing the local plugin and building it, ask Codex:
 打开力扣题库
 ```
 
-Codex calls `leetcode_open_catalog` and renders the interactive catalog. In the catalog you can:
+Codex calls `leetcode_open_catalog`, starts a local server on `127.0.0.1`, and opens its returned URL in the built-in Browser panel. In the catalog you can:
 
 1. Click **同步目录** to fetch the four complete lightweight catalogs.
 2. Search by problem number, title, or slug, and use **加载更多** to browse the full catalog in pages.
 3. Click a problem to fetch its current statement, tags, and language templates live from LeetCode.
-4. Choose a language, enter a solution root such as `D:\Code\leetcode-solutions`, and create or reuse the local file without overwriting existing code.
+4. The shared solution directory defaults to the current Codex workspace. Change it once from the catalog-level directory bar when needed; every problem uses that same root.
+5. Choose a language and create or reuse the local file without overwriting existing code. The file opens immediately in the built-in editor; save with the button or `⌘/Ctrl+S`.
 
-The UI is a single bundled MCP Apps resource. It does not fetch or persist every problem statement during catalog synchronization.
+The browser UI is a single bundled HTML page served by the plugin process. It uses authenticated same-origin HTTP APIs and does not fetch or persist every problem statement during catalog synchronization. The server stops with the MCP process and is not exposed to the LAN.
 
 ## Development
 
@@ -46,7 +47,7 @@ npm run build
 npm run smoke:mcp
 ```
 
-`npm run smoke:mcp` checks the 19 tools, the `ui://codex-leetcode/catalog.html` resource, its MCP Apps MIME type, and a render-tool result.
+`npm run smoke:mcp` checks the 19 tools, launches the loopback HTTP app, follows its authenticated redirect, and verifies the bundled catalog page.
 
 `npm run smoke:live` performs low-frequency anonymous requests against `leetcode.cn`: one algorithms catalog request, one live `two-sum` detail request, plus an anonymous authentication-status query.
 

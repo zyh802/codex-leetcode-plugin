@@ -63,4 +63,43 @@ describe("LeetCodeDatabase", () => {
       database.close();
     }
   });
+
+  it("orders standard numeric questions before special problem series", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "codex-leetcode-test-"));
+    temporaryDirectories.push(directory);
+    const database = new LeetCodeDatabase(path.join(directory, "test.db"));
+    try {
+      database.upsertCatalog([
+        catalogProblem("LCP 01", "guess-numbers"),
+        catalogProblem("10", "regular-expression-matching"),
+        catalogProblem("2", "add-two-numbers"),
+        catalogProblem("1", "two-sum"),
+      ]);
+
+      const ordered = database.searchProblems("", 10) as Array<{ frontendId: string }>;
+      expect(ordered.map((problem) => problem.frontendId)).toEqual([
+        "1",
+        "2",
+        "10",
+        "LCP 01",
+      ]);
+    } finally {
+      database.close();
+    }
+  });
 });
+
+function catalogProblem(frontendId: string, slug: string) {
+  return {
+    questionId: `question-${frontendId}`,
+    frontendId,
+    slug,
+    title: slug,
+    difficulty: "Easy" as const,
+    paidOnly: false,
+    totalAccepted: null,
+    totalSubmitted: null,
+    status: null,
+    category: "algorithms" as const,
+  };
+}

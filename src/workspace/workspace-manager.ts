@@ -4,6 +4,7 @@ import {
   lstatSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   unlinkSync,
   writeFileSync,
@@ -30,6 +31,12 @@ export interface ResolvedSolution {
   langSlug: string;
   filePath: string;
   code: string;
+  codeHash: string;
+}
+
+export interface EditableSolution {
+  filePath: string;
+  content: string;
   codeHash: string;
 }
 
@@ -75,6 +82,30 @@ export class WorkspaceManager {
     const codeHash = sha256(readFileSync(filePath, "utf8"));
     this.database.upsertWorkspace(template.problemId, template.langSlug, filePath, codeHash);
     return { filePath, metadataPath, created, codeHash };
+  }
+
+  readSolutionForEditing(filePathInput: string, rootDirectory: string): EditableSolution {
+    const filePath = resolveEditableFile(filePathInput, rootDirectory);
+    const content = readFileSync(filePath, "utf8");
+    return { filePath, content, codeHash: sha256(content) };
+  }
+
+  saveSolutionFromEditor(
+    filePathInput: string,
+    rootDirectory: string,
+    content: string,
+    expectedHash: string,
+  ): EditableSolution {
+    const filePath = resolveEditableFile(filePathInput, rootDirectory);
+    const currentContent = readFileSync(filePath, "utf8");
+    if (sha256(currentContent) !== expectedHash) {
+      throw new AppError(
+        "FILE_CHANGED_DURING_EDIT",
+        "代码文件已在编辑器外被修改。请重新创建/打开该题，确认最新内容后再保存。",
+      );
+    }
+    atomicReplace(filePath, content);
+    return { filePath, content, codeHash: sha256(content) };
   }
 
   resolveSolution(filePathInput: string): ResolvedSolution {
@@ -181,6 +212,34 @@ function atomicCreate(filePath: string, content: string): void {
   } finally {
     if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
   }
+}
+
+function atomicReplace(filePath: string, content: string): void {
+  const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    writeFileSync(temporaryPath, content, { encoding: "utf8", flag: "wx", mode: lstatSync(filePath).mode });
+    renameSync(temporaryPath, filePath);
+  } finally {
+    if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
+  }
+}
+
+function resolveEditableFile(filePathInput: string, rootDirectory: string): string {
+  const root = path.resolve(rootDirectory);
+  const filePath = path.resolve(filePathInput);
+  if (!existsSync(root) || !existsSync(filePath)) {
+    throw new AppError("FILE_NOT_FOUND", "要编辑的代码文件不存在。");
+  }
+  if (lstatSync(root).isSymbolicLink() || lstatSync(filePath).isSymbolicLink()) {
+    throw new AppError("INVALID_INPUT", "解答目录和代码文件不能是符号链接。");
+  }
+  const realRoot = realpathSync(root);
+  const realFile = realpathSync(filePath);
+  assertWithinRoot(realRoot, realFile);
+  if (!lstatSync(realFile).isFile()) {
+    throw new AppError("INVALID_INPUT", "要编辑的路径不是普通文件。");
+  }
+  return realFile;
 }
 
 function assertWithinRoot(root: string, candidate: string): void {
