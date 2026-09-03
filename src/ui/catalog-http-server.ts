@@ -12,12 +12,23 @@ import path from "node:path";
 import { z } from "zod";
 import { AppError } from "../core/errors.js";
 import { toToolResult } from "../core/result.js";
+import { completionStatuses, problemCategories, problemDifficulties } from "../domain/types.js";
+import type { ProblemSearchFilters } from "../domain/types.js";
+import type { CredentialPersistence } from "../auth/session-service.js";
+import type { CatalogCloseResultDto, CatalogClientLeaseDto } from "../contracts/lifecycle.js";
 
 export interface CatalogHttpDependencies {
   getCatalogStats(): unknown;
-  searchProblems(query: string, limit: number, offset: number): unknown;
+  searchProblems(query: string, limit: number, offset: number, filters?: ProblemSearchFilters): unknown;
   startFullSync(): number;
   getSyncStatus(runId?: number): unknown;
+  getAuthStatus(): Promise<unknown>;
+  startBrowserLogin(persistence: CredentialPersistence): unknown;
+  getBrowserLoginStatus(flowId?: string): unknown;
+  cancelBrowserLogin(flowId: string): unknown;
+  importCookie(cookie: string, persistence: CredentialPersistence): Promise<unknown>;
+  importSession(session: string, csrf: string): Promise<unknown>;
+  forgetSession(): unknown;
   getProblem(problemId: number): Promise<unknown>;
   createSolution(problemId: number, langSlug: string, directory: string): Promise<{
     filePath: string;
@@ -35,6 +46,14 @@ export interface CatalogHttpDependencies {
     content: string;
     codeHash: string;
   };
+  runRemote(filePath: string, input: string): Promise<unknown>;
+  prepareSubmission(filePath: string): unknown;
+  submitSolution(filePath: string, confirmationToken: string): Promise<unknown>;
+  getJudgeResult(jobId: number, waitMs: number): Promise<unknown>;
+  cancelJudgePoll(jobId: number): unknown;
+  getLatestJudgeJob(filePath: string): unknown;
+  prepareReview(filePath: string, judgeJobId?: number): Promise<unknown>;
+  hasCriticalActivity?(): boolean;
 }
 
 export interface CatalogLaunch {
@@ -51,9 +70,24 @@ export interface CatalogWorkspaceSettings {
   customized: boolean;
 }
 
+export interface CatalogHttpServerOptions {
+  heartbeatIntervalMs?: number;
+  leaseExpiresAfterMs?: number;
+  idleCloseAfterMs?: number;
+  sweepIntervalMs?: number;
+  now?: () => number;
+}
+
 const toolSchemas = {
   leetcode_search_problems: z.object({
     query: z.string().max(200).default(""),
+    filters: z.object({
+      difficulties: z.array(z.enum(problemDifficulties)).max(problemDifficulties.length).optional(),
+      categories: z.array(z.enum(problemCategories)).max(problemCategories.length).optional(),
+      paid: z.enum(["all", "free", "paid"]).default("all"),
+      statuses: z.array(z.enum(completionStatuses)).max(completionStatuses.length).optional(),
+      favorite: z.boolean().default(false),
+    }).default({ paid: "all", favorite: false }),
     limit: z.number().int().min(1).max(100).default(50),
     offset: z.number().int().min(0).default(0),
   }),
@@ -61,9 +95,41 @@ const toolSchemas = {
   leetcode_start_full_sync: z.object({}),
   leetcode_get_sync_status: z.object({ runId: z.number().int().positive().optional() }),
   leetcode_get_catalog_stats: z.object({}),
+  leetcode_auth_status: z.object({}),
+  leetcode_start_browser_login: z.object({ persistence: z.enum(["system", "memory"]).default("system") }),
+  leetcode_get_browser_login_status: z.object({ flowId: z.string().uuid().optional() }),
+  leetcode_cancel_browser_login: z.object({ flowId: z.string().uuid() }),
+  leetcode_import_cookie: z.object({
+    cookie: z.string().min(1).max(32_768),
+    persistence: z.enum(["system", "memory"]).default("system"),
+  }),
+  leetcode_import_session: z.object({
+    session: z.string().min(8).max(16_384),
+    csrf: z.string().min(8).max(16_384),
+  }),
+  leetcode_forget_session: z.object({ confirm: z.literal(true) }),
   leetcode_create_solution: z.object({
     problemId: z.number().int().positive(),
     langSlug: z.string().min(1).max(64),
+  }),
+  leetcode_remote_run: z.object({
+    filePath: z.string().min(1).max(4_096),
+    input: z.string().max(1_000_000),
+  }),
+  leetcode_prepare_submission: z.object({ filePath: z.string().min(1).max(4_096) }),
+  leetcode_submit_solution: z.object({
+    filePath: z.string().min(1).max(4_096),
+    confirmationToken: z.string().uuid(),
+  }),
+  leetcode_get_judge_result: z.object({
+    jobId: z.number().int().positive(),
+    waitMs: z.number().int().min(0).max(30_000).default(0),
+  }),
+  leetcode_cancel_judge_poll: z.object({ jobId: z.number().int().positive() }),
+  leetcode_get_latest_judge_job: z.object({ filePath: z.string().min(1).max(4_096) }),
+  leetcode_prepare_review: z.object({
+    filePath: z.string().min(1).max(4_096),
+    judgeJobId: z.number().int().positive().optional(),
   }),
 };
 
@@ -77,23 +143,42 @@ const editorSaveSchema = z.object({
   expectedHash: z.string().regex(/^[a-f0-9]{64}$/u),
 });
 
+const clientLeaseSchema = z.object({
+  pageId: z.string().uuid(),
+});
+
 type CatalogToolName = keyof typeof toolSchemas;
 
 export class CatalogHttpServer {
-  private readonly launchToken = randomBytes(32).toString("base64url");
+  private launchToken = createLaunchToken();
   private readonly htmlPath: string;
+  private readonly heartbeatIntervalMs: number;
+  private readonly leaseExpiresAfterMs: number;
+  private readonly idleCloseAfterMs: number;
+  private readonly sweepIntervalMs: number;
+  private readonly now: () => number;
   private server: NodeHttpServer | undefined;
   private origin: string | undefined;
   private starting: Promise<string> | undefined;
   private workspaceRoot: string | null = null;
   private solutionRoot: string | null = null;
   private readonly editableFilePaths = new Set<string>();
+  private readonly clientLeases = new Map<string, number>();
+  private sweepTimer: ReturnType<typeof setInterval> | undefined;
+  private idleCloseTimer: ReturnType<typeof setTimeout> | undefined;
+  private hasRegisteredClient = false;
 
   constructor(
     private readonly dependencies: CatalogHttpDependencies,
     htmlPath = path.join(import.meta.dirname, "catalog.html"),
+    options: CatalogHttpServerOptions = {},
   ) {
     this.htmlPath = htmlPath;
+    this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 30_000;
+    this.leaseExpiresAfterMs = options.leaseExpiresAfterMs ?? 120_000;
+    this.idleCloseAfterMs = options.idleCloseAfterMs ?? 30_000;
+    this.sweepIntervalMs = options.sweepIntervalMs ?? 5_000;
+    this.now = options.now ?? Date.now;
   }
 
   async open(query = "", workspaceRoot?: string): Promise<CatalogLaunch> {
@@ -143,10 +228,28 @@ export class CatalogHttpServer {
     const server = this.server;
     this.server = undefined;
     this.origin = undefined;
+    this.stopLifecycleTimers();
+    this.clientLeases.clear();
+    this.hasRegisteredClient = false;
+    this.editableFilePaths.clear();
+    this.launchToken = createLaunchToken();
     if (!server?.listening) return;
     await new Promise<void>((resolve, reject) => {
       server.close((error) => error ? reject(error) : resolve());
+      server.closeIdleConnections?.();
     });
+  }
+
+  isRunning(): boolean {
+    return this.server?.listening === true && this.origin !== undefined;
+  }
+
+  async closeCatalog(): Promise<CatalogCloseResultDto> {
+    if (!this.isRunning() && this.starting === undefined) {
+      return { closed: false, alreadyClosed: true, blockedByCriticalActivity: false };
+    }
+    await this.close();
+    return { closed: true, alreadyClosed: false, blockedByCriticalActivity: false };
   }
 
   private async ensureStarted(): Promise<string> {
@@ -178,6 +281,7 @@ export class CatalogHttpServer {
         }
         const origin = `http://127.0.0.1:${(address as AddressInfo).port}`;
         this.origin = origin;
+        this.startLifecycleSweep();
         server.unref();
         resolve(origin);
       });
@@ -255,7 +359,7 @@ export class CatalogHttpServer {
         data: {
           stats: this.dependencies.getCatalogStats(),
           query,
-          problems: this.dependencies.searchProblems(query, 50, 0),
+          problems: this.dependencies.searchProblems(query, 50, 0, {}),
           workspace: this.getWorkspaceSettings(),
         },
       });
@@ -263,7 +367,8 @@ export class CatalogHttpServer {
     }
     if (request.method === "POST" &&
       (url.pathname.startsWith("/api/tools/") || url.pathname.startsWith("/api/settings/") ||
-        url.pathname.startsWith("/api/editor/"))) {
+        url.pathname.startsWith("/api/editor/") || url.pathname.startsWith("/api/clients/") ||
+        url.pathname.startsWith("/api/catalog/"))) {
       if (request.headers.origin && request.headers.origin !== origin) {
         this.sendJson(response, 403, {
           ok: false,
@@ -278,6 +383,43 @@ export class CatalogHttpServer {
         });
         return;
       }
+    }
+    if (request.method === "POST" && url.pathname === "/api/clients/register") {
+      const input = clientLeaseSchema.parse(await readJsonBody(request));
+      this.hasRegisteredClient = true;
+      this.clientLeases.set(input.pageId, this.now());
+      this.cancelIdleClose();
+      this.sendJson(response, 200, { ok: true, data: this.leaseResponse(input.pageId) });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/clients/heartbeat") {
+      const input = clientLeaseSchema.parse(await readJsonBody(request));
+      this.clientLeases.set(input.pageId, this.now());
+      this.cancelIdleClose();
+      this.sendJson(response, 200, { ok: true, data: this.leaseResponse(input.pageId) });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/clients/release") {
+      const input = clientLeaseSchema.parse(await readJsonBody(request));
+      this.clientLeases.delete(input.pageId);
+      this.scheduleIdleCloseIfNeeded();
+      this.sendJson(response, 200, {
+        ok: true,
+        data: { released: true, activeClients: this.clientLeases.size },
+      });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/catalog/close") {
+      await readJsonBody(request);
+      const result: CatalogCloseResultDto = {
+        closed: true,
+        alreadyClosed: false,
+        blockedByCriticalActivity: false,
+      };
+      response.setHeader("Connection", "close");
+      this.sendJson(response, 200, { ok: true, data: result });
+      setImmediate(() => void this.close());
+      return;
     }
     if (request.method === "POST" && url.pathname === "/api/settings/solution-root") {
       const input = solutionRootSchema.parse(await readJsonBody(request));
@@ -325,10 +467,11 @@ export class CatalogHttpServer {
   }
 
   private async dispatch(name: CatalogToolName, input: unknown): Promise<unknown> {
-    switch (name) {
+    try {
+      switch (name) {
       case "leetcode_search_problems": {
         const args = toolSchemas.leetcode_search_problems.parse(input);
-        return this.dependencies.searchProblems(args.query, args.limit, args.offset);
+        return this.dependencies.searchProblems(args.query, args.limit, args.offset, args.filters);
       }
       case "leetcode_get_problem": {
         const args = toolSchemas.leetcode_get_problem.parse(input);
@@ -346,6 +489,34 @@ export class CatalogHttpServer {
         toolSchemas.leetcode_get_catalog_stats.parse(input);
         return this.dependencies.getCatalogStats();
       }
+      case "leetcode_auth_status": {
+        toolSchemas.leetcode_auth_status.parse(input);
+        return this.dependencies.getAuthStatus();
+      }
+      case "leetcode_start_browser_login": {
+        const args = toolSchemas.leetcode_start_browser_login.parse(input);
+        return this.dependencies.startBrowserLogin(args.persistence);
+      }
+      case "leetcode_get_browser_login_status": {
+        const args = toolSchemas.leetcode_get_browser_login_status.parse(input);
+        return this.dependencies.getBrowserLoginStatus(args.flowId);
+      }
+      case "leetcode_cancel_browser_login": {
+        const args = toolSchemas.leetcode_cancel_browser_login.parse(input);
+        return this.dependencies.cancelBrowserLogin(args.flowId);
+      }
+      case "leetcode_import_cookie": {
+        const args = toolSchemas.leetcode_import_cookie.parse(input);
+        return this.dependencies.importCookie(args.cookie, args.persistence);
+      }
+      case "leetcode_import_session": {
+        const args = toolSchemas.leetcode_import_session.parse(input);
+        return this.dependencies.importSession(args.session, args.csrf);
+      }
+      case "leetcode_forget_session": {
+        toolSchemas.leetcode_forget_session.parse(input);
+        return this.dependencies.forgetSession();
+      }
       case "leetcode_create_solution": {
         const args = toolSchemas.leetcode_create_solution.parse(input);
         if (this.solutionRoot === null) {
@@ -356,6 +527,40 @@ export class CatalogHttpServer {
         this.editableFilePaths.add(path.resolve(editor.filePath));
         return { ...created, editor };
       }
+      case "leetcode_remote_run": {
+        const args = toolSchemas.leetcode_remote_run.parse(input);
+        return this.dependencies.runRemote(args.filePath, args.input);
+      }
+      case "leetcode_prepare_submission": {
+        const args = toolSchemas.leetcode_prepare_submission.parse(input);
+        return this.dependencies.prepareSubmission(args.filePath);
+      }
+      case "leetcode_submit_solution": {
+        const args = toolSchemas.leetcode_submit_solution.parse(input);
+        return this.dependencies.submitSolution(args.filePath, args.confirmationToken);
+      }
+      case "leetcode_get_judge_result": {
+        const args = toolSchemas.leetcode_get_judge_result.parse(input);
+        return this.dependencies.getJudgeResult(args.jobId, args.waitMs);
+      }
+      case "leetcode_cancel_judge_poll": {
+        const args = toolSchemas.leetcode_cancel_judge_poll.parse(input);
+        return this.dependencies.cancelJudgePoll(args.jobId);
+      }
+      case "leetcode_get_latest_judge_job": {
+        const args = toolSchemas.leetcode_get_latest_judge_job.parse(input);
+        return this.dependencies.getLatestJudgeJob(args.filePath);
+      }
+      case "leetcode_prepare_review": {
+        const args = toolSchemas.leetcode_prepare_review.parse(input);
+        return this.dependencies.prepareReview(args.filePath, args.judgeJobId);
+      }
+      }
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        throw new AppError("INVALID_INPUT", "The local UI request did not match the tool contract.", false, error.issues);
+      }
+      throw error;
     }
   }
 
@@ -368,6 +573,50 @@ export class CatalogHttpServer {
       throw new AppError("INVALID_INPUT", "This file was not opened by the current catalog editor.");
     }
     return this.dependencies.saveSolution(resolved, this.solutionRoot, content, expectedHash);
+  }
+
+  private leaseResponse(pageId: string): CatalogClientLeaseDto {
+    return {
+      pageId,
+      activeClients: this.clientLeases.size,
+      heartbeatIntervalMs: this.heartbeatIntervalMs,
+      expiresAfterMs: this.leaseExpiresAfterMs,
+    };
+  }
+
+  private startLifecycleSweep(): void {
+    this.stopLifecycleTimers();
+    this.sweepTimer = setInterval(() => {
+      const cutoff = this.now() - this.leaseExpiresAfterMs;
+      for (const [pageId, lastSeenAt] of this.clientLeases) {
+        if (lastSeenAt < cutoff) this.clientLeases.delete(pageId);
+      }
+      this.scheduleIdleCloseIfNeeded();
+    }, this.sweepIntervalMs);
+    this.sweepTimer.unref?.();
+  }
+
+  private scheduleIdleCloseIfNeeded(): void {
+    if (!this.hasRegisteredClient || this.clientLeases.size > 0 || this.idleCloseTimer !== undefined) return;
+    if (this.dependencies.hasCriticalActivity?.() === true) return;
+    this.idleCloseTimer = setTimeout(() => {
+      this.idleCloseTimer = undefined;
+      if (this.clientLeases.size > 0 || this.dependencies.hasCriticalActivity?.() === true) return;
+      void this.close();
+    }, this.idleCloseAfterMs);
+    this.idleCloseTimer.unref?.();
+  }
+
+  private cancelIdleClose(): void {
+    if (this.idleCloseTimer === undefined) return;
+    clearTimeout(this.idleCloseTimer);
+    this.idleCloseTimer = undefined;
+  }
+
+  private stopLifecycleTimers(): void {
+    if (this.sweepTimer !== undefined) clearInterval(this.sweepTimer);
+    this.sweepTimer = undefined;
+    this.cancelIdleClose();
   }
 
   private selectWorkspaceRoot(input?: string): void {
@@ -438,6 +687,10 @@ function isCatalogToolName(value: string): value is CatalogToolName {
 
 function sessionCookie(token: string): string {
   return `codex_leetcode_session=${token}; HttpOnly; SameSite=Strict; Path=/`;
+}
+
+function createLaunchToken(): string {
+  return randomBytes(32).toString("base64url");
 }
 
 function safeEqual(left: string, right: string): boolean {

@@ -87,6 +87,42 @@ describe("LeetCodeDatabase", () => {
       database.close();
     }
   });
+
+  it("combines difficulty, category, paid, completion, and favorite filters", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "codex-leetcode-test-"));
+    temporaryDirectories.push(directory);
+    const database = new LeetCodeDatabase(path.join(directory, "test.db"));
+    try {
+      database.upsertCatalog([
+        {
+          ...catalogProblem("1", "solved-free"), difficulty: "Easy", status: "ac", favorite: true,
+          category: "algorithms",
+        },
+        {
+          ...catalogProblem("2", "attempted-paid"), difficulty: "Medium", paidOnly: true, status: "notac",
+          favorite: false, category: "database",
+        },
+        {
+          ...catalogProblem("3", "new-hard"), difficulty: "Hard", status: null, favorite: false,
+          category: "algorithms",
+        },
+      ]);
+
+      expect(database.searchProblems("", 10, 0, { difficulties: ["Medium"] }))
+        .toMatchObject([{ slug: "attempted-paid" }]);
+      expect(database.searchProblems("", 10, 0, { categories: ["database"], paid: "paid" }))
+        .toMatchObject([{ slug: "attempted-paid", paidOnly: true }]);
+      expect(database.searchProblems("", 10, 0, { statuses: ["not_started"] }))
+        .toMatchObject([{ slug: "new-hard" }]);
+      expect(database.searchProblems("", 10, 0, { favorite: true, statuses: ["solved"] }))
+        .toMatchObject([{ slug: "solved-free", favorite: true }]);
+      database.upsertCatalog([{ ...catalogProblem("1", "solved-free"), status: "ac", category: "algorithms" }]);
+      expect(database.searchProblems("", 10, 0, { favorite: true }))
+        .toMatchObject([{ slug: "solved-free", favorite: true }]);
+    } finally {
+      database.close();
+    }
+  });
 });
 
 function catalogProblem(frontendId: string, slug: string) {

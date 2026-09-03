@@ -1,0 +1,4 @@
+.toast { position: fixed; z-index: 110; right: 22px; bottom: 22px; max-width: min(420px, calc(100vw - 44px)); padding: 11px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-lg); color: var(--text); font-size: 13px; }
+.success { border-color: color-mix(in srgb, var(--easy) 40%, var(--border)); }
+.error { border-color: color-mix(in srgb, var(--hard) 40%, var(--border)); }
+.neutral { border-color: var(--border); }

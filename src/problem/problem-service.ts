@@ -10,11 +10,21 @@ export class ProblemService {
     private readonly database: LeetCodeDatabase,
     private readonly adapter: LeetCodeCnAdapter,
     private readonly credentialsProvider: () => SessionCredentials | undefined,
+    private readonly authExpiredHandler: (credentials: SessionCredentials) => void = () => undefined,
   ) {}
 
   async getProblem(problemId: number): Promise<ProblemDetailView> {
     const catalog = this.database.getCatalogProblem(problemId);
-    const detail = await this.adapter.getQuestionDetail(catalog.slug, this.credentialsProvider());
+    const credentials = this.credentialsProvider();
+    let detail: QuestionDetail;
+    try {
+      detail = await this.adapter.getQuestionDetail(catalog.slug, credentials);
+    } catch (error) {
+      if (credentials !== undefined && error instanceof AppError && error.code === "AUTH_EXPIRED") {
+        this.authExpiredHandler(credentials);
+      }
+      throw error;
+    }
     assertIdentity(catalog.questionId, catalog.slug, detail);
 
     if (detail.content === null && detail.translatedContent === null) {

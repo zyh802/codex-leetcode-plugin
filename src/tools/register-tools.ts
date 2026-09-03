@@ -4,16 +4,19 @@ import { toToolResult } from "../core/result.js";
 import type { LeetCodeDatabase } from "../storage/database.js";
 import type { SyncEngine } from "../sync/sync-engine.js";
 import type { SessionService } from "../auth/session-service.js";
+import type { BrowserLoginService } from "../auth/browser-login-service.js";
 import type { WorkspaceManager } from "../workspace/workspace-manager.js";
 import type { RemoteJudgeService } from "../judge/remote-judge-service.js";
 import type { ReviewContextService } from "../review/review-context-service.js";
 import type { ProblemService } from "../problem/problem-service.js";
+import { completionStatuses, problemCategories, problemDifficulties } from "../domain/types.js";
 
 export function registerTools(
   server: McpServer,
   database: LeetCodeDatabase,
   syncEngine: SyncEngine,
   sessionService: SessionService,
+  browserLogin: BrowserLoginService,
   problemService: ProblemService,
   workspaceManager: WorkspaceManager,
   remoteJudge: RemoteJudgeService,
@@ -40,9 +43,54 @@ export function registerTools(
   );
 
   server.registerTool(
+    "leetcode_start_browser_login",
+    {
+      description: "Open a temporary local Chrome or Edge window on leetcode.cn and start an automatic browser login flow. Passwords and verification codes remain on the official site.",
+      inputSchema: { persistence: z.enum(["system", "memory"]).default("system") },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    async ({ persistence }) => response(await toToolResult(() => browserLogin.start(persistence))),
+  );
+
+  server.registerTool(
+    "leetcode_get_browser_login_status",
+    {
+      description: "Read the current browser-login state without exposing cookies or other credentials.",
+      inputSchema: { flowId: z.string().uuid().optional() },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    },
+    async ({ flowId }) => response(await toToolResult(() => browserLogin.getStatus(flowId))),
+  );
+
+  server.registerTool(
+    "leetcode_cancel_browser_login",
+    {
+      description: "Cancel one active browser-login flow and remove its temporary browser profile.",
+      inputSchema: { flowId: z.string().uuid() },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    async ({ flowId }) => response(await toToolResult(() => browserLogin.cancel(flowId))),
+  );
+
+  server.registerTool(
+    "leetcode_import_cookie",
+    {
+      description: "Advanced fallback: validate a complete LeetCode Cookie header, extract the required values, and store them in the operating-system credential store.",
+      inputSchema: {
+        cookie: z.string().min(1).max(32_768),
+        persistence: z.enum(["system", "memory"]).default("system"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    },
+    async ({ cookie, persistence }) => response(
+      await toToolResult(() => sessionService.importCookie(cookie, persistence)),
+    ),
+  );
+
+  server.registerTool(
     "leetcode_import_session",
     {
-      description: "Validate and store a LeetCode session in the operating-system credential store.",
+      description: "Compatibility fallback: validate separately supplied LeetCode session values and store them in the operating-system credential store.",
       inputSchema: {
         session: z.string().min(8).max(16_384),
         csrf: z.string().min(8).max(16_384),
@@ -127,13 +175,20 @@ export function registerTools(
       description: "Search the complete locally synchronized catalog by problem number, title, or slug without network access.",
       inputSchema: {
         query: z.string().max(200).default(""),
+        filters: z.object({
+          difficulties: z.array(z.enum(problemDifficulties)).max(problemDifficulties.length).optional(),
+          categories: z.array(z.enum(problemCategories)).max(problemCategories.length).optional(),
+          paid: z.enum(["all", "free", "paid"]).default("all"),
+          statuses: z.array(z.enum(completionStatuses)).max(completionStatuses.length).optional(),
+          favorite: z.boolean().default(false),
+        }).default({ paid: "all", favorite: false }),
         limit: z.number().int().min(1).max(100).default(30),
         offset: z.number().int().min(0).default(0),
       },
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
-    async ({ query, limit, offset }) => response(
-      await toToolResult(() => database.searchProblems(query, limit, offset)),
+    async ({ query, filters, limit, offset }) => response(
+      await toToolResult(() => database.searchProblems(query, limit, offset, filters)),
     ),
   );
 
@@ -223,6 +278,16 @@ export function registerTools(
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     async ({ jobId, waitMs }) => response(await toToolResult(() => remoteJudge.getResult(jobId, waitMs))),
+  );
+
+  server.registerTool(
+    "leetcode_cancel_judge_poll",
+    {
+      description: "Cancel only the active local polling loop for a judge job. The remote Run or Submit and its saved ticket remain recoverable.",
+      inputSchema: { jobId: z.number().int().positive() },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    async ({ jobId }) => response(await toToolResult(() => remoteJudge.cancelPoll(jobId))),
   );
 
   server.registerTool(

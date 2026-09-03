@@ -30,6 +30,9 @@ const transport = new StdioClientTransport({
 try {
   await client.connect(transport);
   const tools = await client.listTools();
+  if (tools.tools.length !== 25 || !tools.tools.some((tool) => tool.name === "leetcode_close_catalog")) {
+    throw new Error(`Expected 25 tools including leetcode_close_catalog, received ${tools.tools.length}.`);
+  }
   const health = await client.callTool({ name: "leetcode_health", arguments: {} });
   const catalog = await client.callTool({
     name: "leetcode_open_catalog",
@@ -44,6 +47,10 @@ try {
   const location = redirect.headers.get("location") ?? "/";
   const page = await fetch(`${launch.data.origin}${location}`, { headers: { Cookie: cookie } });
   const pageText = await page.text();
+  const closed = await client.callTool({ name: "leetcode_close_catalog", arguments: {} });
+  if (!closed.structuredContent?.ok || closed.structuredContent.data?.closed !== true) {
+    throw new Error("Catalog close tool did not stop the local HTTP listener.");
+  }
   process.stdout.write(`${JSON.stringify({
     toolNames: tools.tools.map((tool) => tool.name),
     catalogToolMeta: tools.tools.find((tool) => tool.name === "leetcode_open_catalog")?._meta,
@@ -56,6 +63,7 @@ try {
     },
     health: health.content,
     catalog: launch,
+    closed: closed.structuredContent,
   }, null, 2)}\n`);
 } finally {
   await client.close();

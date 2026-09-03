@@ -12,6 +12,7 @@ export class SyncEngine {
     private readonly database: LeetCodeDatabase,
     private readonly adapter: LeetCodeCnAdapter,
     private readonly credentialsProvider: () => SessionCredentials | undefined,
+    private readonly authExpiredHandler: (credentials: SessionCredentials) => void = () => undefined,
   ) {}
 
   startFullSync(): number {
@@ -19,6 +20,10 @@ export class SyncEngine {
     const runId = this.database.createSyncRun();
     this.launch(runId);
     return runId;
+  }
+
+  isActive(): boolean {
+    return this.activeRunId !== null;
   }
 
   pause(runId: number): void {
@@ -65,12 +70,15 @@ export class SyncEngine {
       }
       this.database.setSyncCategoryState(runId, category, "running");
       try {
-        const catalog = await this.adapter.getCatalog(category, this.credentialsProvider());
+        const credentials = this.credentialsProvider();
+        const catalog = await this.adapter.getCatalog(category, credentials);
         this.database.upsertCatalog(catalog);
         this.database.setSyncCategoryState(runId, category, "synced");
         log("info", "catalog synchronized", { runId, category, count: catalog.length });
       } catch (error) {
         const appError = asAppError(error);
+        const credentials = this.credentialsProvider();
+        if (appError.code === "AUTH_EXPIRED" && credentials !== undefined) this.authExpiredHandler(credentials);
         this.database.setSyncCategoryState(runId, category, "retryable", appError.code);
         log("warn", "catalog synchronization failed", {
           runId,

@@ -19,6 +19,7 @@ describe("LeetCode CN adapter parsing", () => {
             difficulty: { level: 1 },
             paid_only: false,
             status: "ac",
+            is_favor: true,
           },
         ],
       },
@@ -36,6 +37,7 @@ describe("LeetCode CN adapter parsing", () => {
         totalAccepted: 100,
         totalSubmitted: 200,
         status: "ac",
+        favorite: true,
         category: "algorithms",
       },
     ]);

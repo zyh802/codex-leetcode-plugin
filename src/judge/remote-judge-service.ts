@@ -15,6 +15,8 @@ interface SubmissionConfirmation {
 }
 export class RemoteJudgeService {
   private readonly confirmations = new Map<string, SubmissionConfirmation>();
+  private readonly activePolls = new Map<number, AbortController>();
+  private activeRequests = 0;
 
   constructor(
     private readonly database: LeetCodeDatabase,
@@ -29,15 +31,25 @@ export class RemoteJudgeService {
     const credentials = this.sessions.getRequiredCredentials();
     const requestHash = hashRequest({ type: "run", codeHash: solution.codeHash, input });
     const jobId = this.database.createJudgeJob(workspace.workspaceId, "run", requestHash);
-    const ticket = await this.adapter.runRemote({
-      slug: solution.slug,
-      questionId: solution.questionId,
-      langSlug: solution.langSlug,
-      code: solution.code,
-      input,
-    }, credentials);
-    this.database.setJudgeTicket(jobId, ticket.remoteId);
-    return { jobId, remoteId: ticket.remoteId };
+    this.activeRequests += 1;
+    try {
+      const ticket = await this.adapter.runRemote({
+        slug: solution.slug,
+        questionId: solution.questionId,
+        langSlug: solution.langSlug,
+        code: solution.code,
+        input,
+      }, credentials);
+      this.database.setJudgeTicket(jobId, ticket.remoteId);
+      return { jobId, remoteId: ticket.remoteId };
+    } catch (error) {
+      this.handleAuthenticatedError(error, credentials);
+      const appError = error instanceof AppError ? error : new AppError("INTERNAL_ERROR", "Remote Run failed.");
+      this.database.setJudgeFailure(jobId, appError.retryable ? "UNKNOWN" : "FAILED", serializeError(appError));
+      throw error;
+    } finally {
+      this.activeRequests -= 1;
+    }
   }
 
   prepareSubmission(filePath: string): {
@@ -86,36 +98,119 @@ export class RemoteJudgeService {
     }
     const workspace = this.requireWorkspace(solution.filePath);
     const credentials = this.sessions.getRequiredCredentials();
+    const requestHash = hashRequest({ type: "submit", codeHash: solution.codeHash });
+    const blocking = this.database.findBlockingSubmit(workspace.workspaceId, requestHash);
+    if (blocking !== null) {
+      throw new AppError(
+        "SUBMIT_OUTCOME_UNKNOWN",
+        `Submit job ${blocking.jobId} is still ${blocking.state}; recover that job before submitting the same code again.`,
+        false,
+        blocking,
+      );
+    }
     const jobId = this.database.createJudgeJob(
       workspace.workspaceId,
       "submit",
-      hashRequest({ type: "submit", codeHash: solution.codeHash }),
+      requestHash,
     );
-    const ticket = await this.adapter.submitRemote({
-      slug: solution.slug,
-      questionId: solution.questionId,
-      langSlug: solution.langSlug,
-      code: solution.code,
-    }, credentials);
-    this.database.setJudgeTicket(jobId, ticket.remoteId);
-    return { jobId, remoteId: ticket.remoteId };
+    this.activeRequests += 1;
+    try {
+      const ticket = await this.adapter.submitRemote({
+        slug: solution.slug,
+        questionId: solution.questionId,
+        langSlug: solution.langSlug,
+        code: solution.code,
+      }, credentials);
+      this.database.setJudgeTicket(jobId, ticket.remoteId);
+      return { jobId, remoteId: ticket.remoteId };
+    } catch (error) {
+      this.handleAuthenticatedError(error, credentials);
+      const appError = error instanceof AppError ? error : new AppError("INTERNAL_ERROR", "Submit failed.");
+      const unknown = appError.retryable && hasUnknownOutcome(appError.details);
+      this.database.setJudgeFailure(jobId, unknown ? "UNKNOWN" : "FAILED", serializeError(appError));
+      if (unknown) {
+        throw new AppError(
+          "SUBMIT_OUTCOME_UNKNOWN",
+          `LeetCode may have received Submit job ${jobId}. It will not be sent again automatically.`,
+          false,
+          { jobId, cause: appError.code },
+        );
+      }
+      throw error;
+    } finally {
+      this.activeRequests -= 1;
+    }
   }
 
   async getResult(jobId: number, waitMs = 0): Promise<unknown> {
     const job = this.database.getJudgeJob(jobId);
     if (job.state === "COMPLETE" && job.resultJson !== null) return JSON.parse(job.resultJson) as unknown;
-    if (job.remoteId === null) throw new AppError("JUDGE_TIMEOUT", "The judge job has no remote ticket yet.", true);
+    if (job.remoteId === null) {
+      if (job.state === "UNKNOWN") {
+        throw new AppError(
+          "SUBMIT_OUTCOME_UNKNOWN",
+          `Judge job ${jobId} has no remote ticket because the Submit response was uncertain.`,
+          false,
+          { jobId, state: job.state },
+        );
+      }
+      throw new AppError("JUDGE_TIMEOUT", "The judge job has no remote ticket yet.", true);
+    }
     const credentials = this.sessions.getRequiredCredentials();
-    const deadline = Date.now() + Math.min(Math.max(waitMs, 0), 30_000);
+    const boundedWaitMs = Math.min(Math.max(waitMs, 0), 30_000);
+    const deadline = Date.now() + boundedWaitMs;
+    const controller = new AbortController();
+    const previous = this.activePolls.get(jobId);
+    if (previous !== undefined) {
+      throw new AppError("INVALID_INPUT", `Judge job ${jobId} is already being polled.`);
+    }
+    let deadlineReached = false;
+    let latestResult: unknown = job.resultJson === null
+      ? { jobId, terminal: false, state: job.state, remoteId: job.remoteId }
+      : JSON.parse(job.resultJson) as unknown;
+    const deadlineTimer = boundedWaitMs > 0
+      ? setTimeout(() => {
+          deadlineReached = true;
+          controller.abort("deadline");
+        }, boundedWaitMs)
+      : undefined;
+    this.activePolls.set(jobId, controller);
     let delay = 500;
-    do {
-      const result = await this.adapter.pollJudge(job.remoteId, credentials);
-      this.database.setJudgeResult(jobId, result, result.terminal);
-      if (result.terminal || Date.now() >= deadline) return result;
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      delay = Math.min(delay * 2, 2_000);
-    } while (Date.now() <= deadline);
-    return this.database.getJudgeJob(jobId);
+    try {
+      do {
+        const result = await this.adapter.pollJudge(job.remoteId, credentials, controller.signal);
+        latestResult = result;
+        this.database.setJudgeResult(jobId, result, result.terminal);
+        if (result.terminal || Date.now() >= deadline) return result;
+        await waitForNextPoll(delay, controller.signal);
+        delay = Math.min(delay * 2, 2_000);
+      } while (Date.now() <= deadline);
+      return this.database.getJudgeJob(jobId);
+    } catch (error) {
+      if (deadlineReached && error instanceof AppError && error.code === "JUDGE_POLL_CANCELLED") {
+        return latestResult;
+      }
+      this.handleAuthenticatedError(error, credentials);
+      throw error;
+    } finally {
+      if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
+      if (this.activePolls.get(jobId) === controller) this.activePolls.delete(jobId);
+    }
+  }
+
+  cancelPoll(jobId: number): { jobId: number; cancelled: boolean; remoteId: string | null; state: string } {
+    const job = this.database.getJudgeJob(jobId);
+    const controller = this.activePolls.get(jobId);
+    controller?.abort();
+    return { jobId, cancelled: controller !== undefined, remoteId: job.remoteId, state: job.state };
+  }
+
+  getLatestJob(filePath: string): ReturnType<LeetCodeDatabase["getJudgeJob"]> | null {
+    return this.database.getLatestJudgeJobByPath(filePath);
+  }
+
+  hasActivePolls(): boolean {
+    return this.activeRequests > 0 || this.activePolls.size > 0;
   }
 
   private requireWorkspace(filePath: string): NonNullable<ReturnType<LeetCodeDatabase["getWorkspaceByPath"]>> {
@@ -123,8 +218,36 @@ export class RemoteJudgeService {
     if (workspace === null) throw new AppError("SOLUTION_IDENTITY_CONFLICT", "Solution workspace was not registered.");
     return workspace;
   }
+
+  private handleAuthenticatedError(error: unknown, credentials: ReturnType<SessionService["getRequiredCredentials"]>): void {
+    if (error instanceof AppError && error.code === "AUTH_EXPIRED") this.sessions.invalidateIfCurrent(credentials);
+  }
 }
 
 function hashRequest(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value), "utf8").digest("hex");
+}
+
+function hasUnknownOutcome(details: unknown): boolean {
+  return typeof details === "object" && details !== null && "outcome" in details && details.outcome === "unknown";
+}
+
+function serializeError(error: AppError): unknown {
+  return { code: error.code, message: error.message, retryable: error.retryable, details: error.details };
+}
+
+function waitForNextPoll(milliseconds: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(new AppError("JUDGE_POLL_CANCELLED", "Judge polling was cancelled."));
+  return new Promise((resolve, reject) => {
+    const finish = (): void => {
+      signal.removeEventListener("abort", cancel);
+      resolve();
+    };
+    const cancel = (): void => {
+      clearTimeout(timer);
+      reject(new AppError("JUDGE_POLL_CANCELLED", "Judge polling was cancelled."));
+    };
+    const timer = setTimeout(finish, milliseconds);
+    signal.addEventListener("abort", cancel, { once: true });
+  });
 }

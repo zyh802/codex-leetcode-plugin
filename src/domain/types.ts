@@ -1,16 +1,31 @@
 export const problemCategories = ["algorithms", "database", "shell", "concurrency"] as const;
 export type ProblemCategory = (typeof problemCategories)[number];
 
+export const problemDifficulties = ["Easy", "Medium", "Hard"] as const;
+export type ProblemDifficulty = (typeof problemDifficulties)[number];
+
+export const completionStatuses = ["solved", "attempted", "not_started"] as const;
+export type CompletionStatus = (typeof completionStatuses)[number];
+
+export interface ProblemSearchFilters {
+  difficulties?: ProblemDifficulty[] | undefined;
+  categories?: ProblemCategory[] | undefined;
+  paid?: "all" | "free" | "paid" | undefined;
+  statuses?: CompletionStatus[] | undefined;
+  favorite?: boolean | undefined;
+}
+
 export interface CatalogProblem {
   questionId: string;
   frontendId: string;
   slug: string;
   title: string;
-  difficulty: "Easy" | "Medium" | "Hard";
+  difficulty: ProblemDifficulty;
   paidOnly: boolean;
   totalAccepted: number | null;
   totalSubmitted: number | null;
   status: string | null;
+  favorite?: boolean | null;
   category: ProblemCategory;
 }
 
@@ -32,7 +47,7 @@ export interface QuestionDetail {
   slug: string;
   title: string;
   translatedTitle: string | null;
-  difficulty: "Easy" | "Medium" | "Hard";
+  difficulty: ProblemDifficulty;
   paidOnly: boolean;
   content: string | null;
   translatedContent: string | null;
@@ -49,7 +64,7 @@ export interface CatalogProblemRecord {
   frontendId: string;
   slug: string;
   title: string;
-  difficulty: "Easy" | "Medium" | "Hard";
+  difficulty: ProblemDifficulty;
   paidOnly: boolean;
 }
 

@@ -10,6 +10,7 @@ import type {
 } from "../domain/types.js";
 import { HttpClient } from "./http-client.js";
 import type { SessionCredentials } from "./http-client.js";
+import { AdapterCircuitBreaker } from "./circuit-breaker.js";
 
 const difficultyByLevel = {
   1: "Easy",
@@ -32,6 +33,7 @@ const catalogSchema = z.object({
       difficulty: z.object({ level: z.union([z.literal(1), z.literal(2), z.literal(3)]) }),
       paid_only: z.boolean(),
       status: z.string().nullable().optional(),
+      is_favor: z.boolean().nullable().optional(),
     }),
   ),
 });
@@ -102,23 +104,31 @@ const judgeCheckSchema = z.object({
 }).passthrough();
 
 export class LeetCodeCnAdapter {
-  constructor(private readonly http: HttpClient) {}
+  constructor(
+    private readonly http: HttpClient,
+    private readonly circuitBreaker = new AdapterCircuitBreaker(),
+  ) {}
 
   async getCatalog(category: ProblemCategory, credentials?: SessionCredentials): Promise<CatalogProblem[]> {
-    const raw = await this.http.getJson(`/api/problems/${category}/`, credentials === undefined ? {} : { credentials });
-    return parseCatalogResponse(raw, category);
+    return this.circuitBreaker.execute(async () => {
+      const raw = await this.http.getJson(`/api/problems/${category}/`, credentials === undefined ? {} : { credentials });
+      return parseCatalogResponse(raw, category);
+    });
   }
 
   async getQuestionDetail(slug: string, credentials?: SessionCredentials): Promise<QuestionDetail> {
-    const raw = await this.http.postJson("/graphql/", {
-      operationName: "questionData",
-      variables: { titleSlug: slug },
-      query: QUESTION_QUERY,
-    }, {
-      ...(credentials === undefined ? {} : { credentials }),
-      referer: `https://leetcode.cn/problems/${slug}/`,
+    return this.circuitBreaker.execute(async () => {
+      const raw = await this.http.postJson("/graphql/", {
+        operationName: "questionData",
+        variables: { titleSlug: slug },
+        query: QUESTION_QUERY,
+      }, {
+        ...(credentials === undefined ? {} : { credentials }),
+        referer: `https://leetcode.cn/problems/${slug}/`,
+        retry: "safe",
+      });
+      return parseQuestionResponse(raw, slug);
     });
-    return parseQuestionResponse(raw, slug);
   }
 
   async getAuthStatus(credentials?: SessionCredentials): Promise<{
@@ -126,20 +136,22 @@ export class LeetCodeCnAdapter {
     username: string | null;
     premium: boolean;
   }> {
-    const raw = await this.http.postJson("/graphql/", {
-      operationName: "globalData",
-      variables: {},
-      query: `query globalData { userStatus { isSignedIn username isPremium } }`,
-    }, credentials === undefined ? {} : { credentials });
-    const parsed = userStatusSchema.safeParse(raw);
-    if (!parsed.success || parsed.data.data.userStatus === null) {
-      throw new AppError("UPSTREAM_SCHEMA_CHANGED", "LeetCode user status schema changed.");
-    }
-    return {
-      signedIn: parsed.data.data.userStatus.isSignedIn,
-      username: parsed.data.data.userStatus.username ?? null,
-      premium: parsed.data.data.userStatus.isPremium ?? false,
-    };
+    return this.circuitBreaker.execute(async () => {
+      const raw = await this.http.postJson("/graphql/", {
+        operationName: "globalData",
+        variables: {},
+        query: `query globalData { userStatus { isSignedIn username isPremium } }`,
+      }, { ...(credentials === undefined ? {} : { credentials }), retry: "safe" });
+      const parsed = userStatusSchema.safeParse(raw);
+      if (!parsed.success || parsed.data.data.userStatus === null) {
+        throw new AppError("UPSTREAM_SCHEMA_CHANGED", "LeetCode user status schema changed.");
+      }
+      return {
+        signedIn: parsed.data.data.userStatus.isSignedIn,
+        username: parsed.data.data.userStatus.username ?? null,
+        premium: parsed.data.data.userStatus.isPremium ?? false,
+      };
+    });
   }
 
   async runRemote(request: {
@@ -149,18 +161,20 @@ export class LeetCodeCnAdapter {
     code: string;
     input: string;
   }, credentials: SessionCredentials): Promise<JudgeTicket> {
-    const raw = await this.http.postJson(`/problems/${request.slug}/interpret_solution/`, {
-      lang: request.langSlug,
-      question_id: request.questionId,
-      typed_code: request.code,
-      data_input: request.input,
-      test_mode: false,
-    }, { credentials, referer: `https://leetcode.cn/problems/${request.slug}/` });
-    const parsed = runTicketSchema.safeParse(raw);
-    if (!parsed.success) {
-      throw new AppError("UPSTREAM_SCHEMA_CHANGED", "LeetCode Run ticket schema changed.", false, parsed.error.issues);
-    }
-    return { remoteId: String(parsed.data.interpret_id), type: "run" };
+    return this.circuitBreaker.execute(async () => {
+      const raw = await this.http.postJson(`/problems/${request.slug}/interpret_solution/`, {
+        lang: request.langSlug,
+        question_id: request.questionId,
+        typed_code: request.code,
+        data_input: request.input,
+        test_mode: false,
+      }, { credentials, referer: `https://leetcode.cn/problems/${request.slug}/` });
+      const parsed = runTicketSchema.safeParse(raw);
+      if (!parsed.success) {
+        throw new AppError("UPSTREAM_SCHEMA_CHANGED", "LeetCode Run ticket schema changed.", false, parsed.error.issues);
+      }
+      return { remoteId: String(parsed.data.interpret_id), type: "run" };
+    });
   }
 
   async submitRemote(request: {
@@ -169,23 +183,34 @@ export class LeetCodeCnAdapter {
     langSlug: string;
     code: string;
   }, credentials: SessionCredentials): Promise<JudgeTicket> {
-    const raw = await this.http.postJson(`/problems/${request.slug}/submit/`, {
-      lang: request.langSlug,
-      question_id: request.questionId,
-      typed_code: request.code,
-      test_mode: false,
-      judge_type: "large",
-    }, { credentials, referer: `https://leetcode.cn/problems/${request.slug}/` });
-    const parsed = submitTicketSchema.safeParse(raw);
-    if (!parsed.success) {
-      throw new AppError("UPSTREAM_SCHEMA_CHANGED", "LeetCode Submit ticket schema changed.", false, parsed.error.issues);
-    }
-    return { remoteId: String(parsed.data.submission_id), type: "submit" };
+    return this.circuitBreaker.execute(async () => {
+      const raw = await this.http.postJson(`/problems/${request.slug}/submit/`, {
+        lang: request.langSlug,
+        question_id: request.questionId,
+        typed_code: request.code,
+        test_mode: false,
+        judge_type: "large",
+      }, { credentials, referer: `https://leetcode.cn/problems/${request.slug}/` });
+      const parsed = submitTicketSchema.safeParse(raw);
+      if (!parsed.success) {
+        throw new AppError("UPSTREAM_SCHEMA_CHANGED", "LeetCode Submit ticket schema changed.", false, parsed.error.issues);
+      }
+      return { remoteId: String(parsed.data.submission_id), type: "submit" };
+    });
   }
 
-  async pollJudge(remoteId: string, credentials: SessionCredentials): Promise<NormalizedJudgeResult> {
-    const raw = await this.http.getJson(`/submissions/detail/${encodeURIComponent(remoteId)}/check/`, { credentials });
-    return parseJudgeResult(raw);
+  async pollJudge(
+    remoteId: string,
+    credentials: SessionCredentials,
+    signal?: AbortSignal,
+  ): Promise<NormalizedJudgeResult> {
+    return this.circuitBreaker.execute(async () => {
+      const raw = await this.http.getJson(`/submissions/detail/${encodeURIComponent(remoteId)}/check/`, {
+        credentials,
+        ...(signal === undefined ? {} : { signal }),
+      });
+      return parseJudgeResult(raw);
+    });
   }
 }
 
@@ -233,6 +258,7 @@ export function parseCatalogResponse(raw: unknown, category: ProblemCategory): C
     totalAccepted: entry.stat.total_acs ?? null,
     totalSubmitted: entry.stat.total_submitted ?? null,
     status: entry.status ?? null,
+    ...(entry.is_favor === undefined || entry.is_favor === null ? {} : { favorite: entry.is_favor }),
     category,
   }));
 }

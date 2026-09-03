@@ -1,6 +1,6 @@
 {
   "name": "codex-leecode-plugin",
-  "version": "0.1.0+codex.20260903060700",
+  "version": "0.1.0+codex.20260903132413",
   "description": "Browse a complete local LeetCode catalog, open selected problem details live, edit solutions, run and submit code, and request Codex reviews.",
   "author": {
     "name": "zyh802",
@@ -34,6 +34,9 @@
       "\u8fd0\u884c\u5f53\u524d\u529b\u6263\u89e3\u7b54\u5e76\u89e3\u91ca\u7ed3\u679c\u3002",
       "\u8bc4\u5ba1\u5f53\u524d\u529b\u6263\u4ee3\u7801\uff0c\u4f46\u4e0d\u8981\u76f4\u63a5\u66ff\u6362\u6211\u7684\u89e3\u6cd5\u3002"
     ],
-    "brandColor": "#FFA116"
+    "brandColor": "#FFA116",
+    "composerIcon": "./assets/codex-leetcode-icon.png",
+    "logo": "./assets/codex-leetcode-icon.png",
+    "logoDark": "./assets/codex-leetcode-icon.png"
   }
 }

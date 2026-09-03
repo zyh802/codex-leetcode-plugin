@@ -1,6 +1,12 @@
 import Database from "better-sqlite3";
 import { problemCategories } from "../domain/types.js";
-import type { CatalogProblem, CatalogProblemRecord, ProblemCategory, SyncStatus } from "../domain/types.js";
+import type {
+  CatalogProblem,
+  CatalogProblemRecord,
+  ProblemCategory,
+  ProblemSearchFilters,
+  SyncStatus,
+} from "../domain/types.js";
 import { AppError } from "../core/errors.js";
 
 const ENDPOINT_CN = 1;
@@ -42,9 +48,13 @@ export class LeetCodeDatabase {
       SELECT id, ? FROM problems WHERE endpoint_id = ? AND question_id = ?
     `);
     const userState = this.db.prepare(`
-      INSERT INTO user_problem_state(problem_id, status, updated_at)
-      SELECT id, ?, CURRENT_TIMESTAMP FROM problems WHERE endpoint_id = ? AND question_id = ?
-      ON CONFLICT(problem_id) DO UPDATE SET status = excluded.status, updated_at = CURRENT_TIMESTAMP
+      INSERT INTO user_problem_state(problem_id, status, favorite, updated_at)
+      SELECT id, @status, COALESCE(@favorite, 0), CURRENT_TIMESTAMP
+      FROM problems WHERE endpoint_id = @endpoint AND question_id = @questionId
+      ON CONFLICT(problem_id) DO UPDATE SET
+        status = excluded.status,
+        favorite = CASE WHEN @favorite IS NULL THEN user_problem_state.favorite ELSE excluded.favorite END,
+        updated_at = CURRENT_TIMESTAMP
     `);
 
     const transaction = this.db.transaction((items: CatalogProblem[]) => {
@@ -61,7 +71,12 @@ export class LeetCodeDatabase {
           item.totalSubmitted,
         );
         category.run(item.category, ENDPOINT_CN, item.questionId);
-        userState.run(item.status, ENDPOINT_CN, item.questionId);
+        userState.run({
+          status: item.status,
+          favorite: item.favorite === undefined || item.favorite === null ? null : item.favorite ? 1 : 0,
+          endpoint: ENDPOINT_CN,
+          questionId: item.questionId,
+        });
       }
     });
     transaction(problems);
@@ -157,22 +172,50 @@ export class LeetCodeDatabase {
     return { ...summary, categories };
   }
 
-  searchProblems(query: string, limit: number, offset = 0): unknown[] {
+  searchProblems(query: string, limit: number, offset = 0, filters: ProblemSearchFilters = {}): unknown[] {
     const normalized = query.trim();
     const pattern = `%${escapeLike(normalized)}%`;
-    const rows = this.db.prepare(`
-      SELECT p.id, p.frontend_id AS frontendId, p.slug, p.title, p.difficulty,
-             p.paid_only AS paidOnly, ups.status,
-             GROUP_CONCAT(pc.category) AS categories
-      FROM problems p
-      LEFT JOIN user_problem_state ups ON ups.problem_id = p.id
-      LEFT JOIN problem_categories pc ON pc.problem_id = p.id
-      WHERE p.endpoint_id = ? AND p.retired_at IS NULL AND (
+    const where: string[] = [`
+      p.endpoint_id = ? AND p.retired_at IS NULL AND (
         ? = '' OR
         p.frontend_id LIKE ? ESCAPE '\\' OR
         p.slug LIKE ? ESCAPE '\\' OR
         p.title LIKE ? ESCAPE '\\'
       )
+    `];
+    const parameters: unknown[] = [ENDPOINT_CN, normalized, pattern, pattern, pattern];
+    if (filters.difficulties && filters.difficulties.length > 0) {
+      where.push(`p.difficulty IN (${placeholders(filters.difficulties.length)})`);
+      parameters.push(...filters.difficulties);
+    }
+    if (filters.categories && filters.categories.length > 0) {
+      where.push(`EXISTS (
+        SELECT 1 FROM problem_categories selected_pc
+        WHERE selected_pc.problem_id = p.id
+          AND selected_pc.category IN (${placeholders(filters.categories.length)})
+      )`);
+      parameters.push(...filters.categories);
+    }
+    if (filters.paid === "free") where.push("p.paid_only = 0");
+    if (filters.paid === "paid") where.push("p.paid_only = 1");
+    if (filters.statuses && filters.statuses.length > 0) {
+      const statusConditions = filters.statuses.map((status) => {
+        if (status === "solved") return "LOWER(COALESCE(ups.status, '')) = 'ac'";
+        if (status === "attempted") return "ups.status IS NOT NULL AND LOWER(ups.status) <> 'ac'";
+        return "ups.status IS NULL";
+      });
+      where.push(`(${statusConditions.join(" OR ")})`);
+    }
+    if (filters.favorite) where.push("COALESCE(ups.favorite, 0) = 1");
+    parameters.push(limit, offset);
+    const rows = this.db.prepare(`
+      SELECT p.id, p.frontend_id AS frontendId, p.slug, p.title, p.difficulty,
+             p.paid_only AS paidOnly, ups.status, COALESCE(ups.favorite, 0) AS favorite,
+             GROUP_CONCAT(pc.category) AS categories
+      FROM problems p
+      LEFT JOIN user_problem_state ups ON ups.problem_id = p.id
+      LEFT JOIN problem_categories pc ON pc.problem_id = p.id
+      WHERE ${where.join(" AND ")}
       GROUP BY p.id
       ORDER BY
         CASE
@@ -186,7 +229,7 @@ export class LeetCodeDatabase {
         p.frontend_id COLLATE NOCASE,
         p.id
       LIMIT ? OFFSET ?
-    `).all(ENDPOINT_CN, normalized, pattern, pattern, pattern, limit, offset) as Array<{
+    `).all(...parameters) as Array<{
       id: number;
       frontendId: string;
       slug: string;
@@ -194,11 +237,13 @@ export class LeetCodeDatabase {
       difficulty: string;
       paidOnly: number;
       status: string | null;
+      favorite: number;
       categories: string | null;
     }>;
     return rows.map((row) => ({
       ...row,
       paidOnly: row.paidOnly === 1,
+      favorite: row.favorite === 1,
       categories: row.categories?.split(",") ?? [],
     }));
   }
@@ -276,25 +321,55 @@ export class LeetCodeDatabase {
     `).run(terminal ? "COMPLETE" : "PENDING", JSON.stringify(result), jobId);
   }
 
+  setJudgeFailure(jobId: number, state: "FAILED" | "UNKNOWN", error: unknown): void {
+    this.db.prepare(`
+      UPDATE judge_jobs SET state = ?, result_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+    `).run(state, JSON.stringify(error), jobId);
+  }
+
   getJudgeJob(jobId: number): {
     id: number;
     type: "run" | "submit";
     state: string;
     remoteId: string | null;
     resultJson: string | null;
+    requestHash: string;
+    workspaceId: number;
+    filePath: string;
   } {
     const row = this.db.prepare(`
-      SELECT id, type, state, remote_id AS remoteId, result_json AS resultJson
-      FROM judge_jobs WHERE id = ?
+      SELECT j.id, j.type, j.state, j.remote_id AS remoteId, j.result_json AS resultJson,
+             j.request_hash AS requestHash, j.workspace_id AS workspaceId, w.file_path AS filePath
+      FROM judge_jobs j JOIN workspaces w ON w.id = j.workspace_id WHERE j.id = ?
     `).get(jobId) as {
       id: number;
       type: "run" | "submit";
       state: string;
       remoteId: string | null;
       resultJson: string | null;
+      requestHash: string;
+      workspaceId: number;
+      filePath: string;
     } | undefined;
     if (!row) throw new AppError("INVALID_INPUT", `Judge job ${jobId} does not exist.`);
     return row;
+  }
+
+  findBlockingSubmit(workspaceId: number, requestHash: string): { jobId: number; state: string } | null {
+    return (this.db.prepare(`
+      SELECT id AS jobId, state FROM judge_jobs
+      WHERE workspace_id = ? AND type = 'submit' AND request_hash = ?
+        AND state IN ('CREATED', 'PENDING', 'UNKNOWN')
+      ORDER BY id DESC LIMIT 1
+    `).get(workspaceId, requestHash) as { jobId: number; state: string } | undefined) ?? null;
+  }
+
+  getLatestJudgeJobByPath(filePath: string): ReturnType<LeetCodeDatabase["getJudgeJob"]> | null {
+    const row = this.db.prepare(`
+      SELECT j.id FROM judge_jobs j JOIN workspaces w ON w.id = j.workspace_id
+      WHERE w.file_path = ? ORDER BY j.id DESC LIMIT 1
+    `).get(filePath) as { id: number } | undefined;
+    return row ? this.getJudgeJob(row.id) : null;
   }
 
   getStoredJudgeResult(jobId: number): unknown | null {
@@ -330,6 +405,10 @@ export class LeetCodeDatabase {
 
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (character) => `\\${character}`);
+}
+
+function placeholders(count: number): string {
+  return Array.from({ length: count }, () => "?").join(", ");
 }
 
 const SCHEMA_V1 = `

@@ -26,4 +26,26 @@ export function registerCatalogHttp(server: McpServer, catalogHttp: CatalogHttpS
       };
     },
   );
+
+  server.registerTool(
+    "leetcode_close_catalog",
+    {
+      title: "Close LeetCode catalog HTTP app",
+      description: "Stop the loopback-only catalog listener without stopping the LeetCode MCP server. Calling it repeatedly is safe.",
+      inputSchema: {},
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    async () => {
+      const result = await toToolResult(() => catalogHttp.closeCatalog());
+      const text = result.ok
+        ? result.data.alreadyClosed
+          ? "本地题库前端已经关闭；MCP 插件仍在运行。"
+          : "本地题库前端已关闭；MCP 插件仍在运行，需要时可再次打开。"
+        : JSON.stringify(result, null, 2);
+      return {
+        structuredContent: result,
+        content: [{ type: "text", text }],
+      };
+    },
+  );
 }
