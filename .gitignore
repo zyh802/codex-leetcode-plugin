@@ -7,4 +7,5 @@ coverage/
 *.db-wal
 *.log
 .env
-.ai-dev-docs/temp/
+.ai-dev-docs/
+ai-dev-docs/

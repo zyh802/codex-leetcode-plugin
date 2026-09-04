@@ -65,5 +65,3 @@ npm run check
 浏览器测试：`npm run test:e2e`；插件连通性检查：`npm run smoke:mcp`。
 
 发布前执行 `npm run build:marketplace`，将生成的 `plugins/codex-leecode-plugin/` 与源码一起提交。`npm run check:marketplace` 检查分发包是否与源码一致；`npm run smoke:marketplace` 验证全新安装与缓存复用。
-
-更多技术细节见 [设计文档](.ai-dev-docs/features/codex-leetcode-plugin/design.md)、[市场分发说明](.ai-dev-docs/features/codex-leetcode-plugin/distribution.md) 和 [任务清单](.ai-dev-docs/features/codex-leetcode-plugin/tasks.md)。
