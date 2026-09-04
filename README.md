@@ -20,7 +20,7 @@
 3. 找到「Codex LeetCode」并安装，新开一个任务使用。
 
 ```text
-zyh802/codex-leecode-plugin
+zyh802/codex-leetcode-plugin
 ```
 
 无需手动克隆或构建。首次启动会自动下载本机运行依赖，请保持联网并稍等；后续启动复用本地缓存。

@@ -3,8 +3,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium, type BrowserContext } from "playwright-core";
+import type { SessionCredentials } from "../adapter/http-client.js";
 import { AppError } from "../core/errors.js";
-import type { CredentialPersistence, SessionService } from "./session-service.js";
+import type { CredentialPersistence, SessionAuthStatus, SessionService } from "./session-service.js";
 
 const LEETCODE_LOGIN_URL = "https://leetcode.cn/accounts/login/";
 const LEETCODE_ORIGIN = "https://leetcode.cn";
@@ -47,6 +48,7 @@ export interface BrowserLoginLauncher {
 export interface BrowserLoginServiceOptions {
   timeoutMs?: number;
   pollIntervalMs?: number;
+  validationRetryIntervalMs?: number;
   now?: () => Date;
   createProfileDirectory?: () => Promise<string>;
   removeProfileDirectory?: (directory: string) => Promise<void>;
@@ -62,6 +64,7 @@ interface ActiveBrowserLogin {
 export class BrowserLoginService {
   private readonly timeoutMs: number;
   private readonly pollIntervalMs: number;
+  private readonly validationRetryIntervalMs: number;
   private readonly now: () => Date;
   private readonly createProfileDirectory: () => Promise<string>;
   private readonly removeProfileDirectory: (directory: string) => Promise<void>;
@@ -75,6 +78,7 @@ export class BrowserLoginService {
   ) {
     this.timeoutMs = options.timeoutMs ?? 5 * 60_000;
     this.pollIntervalMs = options.pollIntervalMs ?? 750;
+    this.validationRetryIntervalMs = options.validationRetryIntervalMs ?? 5_000;
     this.now = options.now ?? (() => new Date());
     this.createProfileDirectory = options.createProfileDirectory ??
       (() => mkdtemp(path.join(tmpdir(), "codex-leetcode-login-")));
@@ -147,12 +151,30 @@ export class BrowserLoginService {
       throwIfAborted(signal);
       this.update(flowId, "WAITING_FOR_USER", "请在新窗口完成力扣登录；插件不会读取密码或验证码。", null, null);
 
+      let pendingCredentials: SessionCredentials | undefined;
+      let nextValidationAt = 0;
       for (;;) {
         throwIfAborted(signal);
         const credentials = findCredentials(await browser.cookies());
-        if (credentials !== null) {
+        const credentialsChanged = credentials !== null && (
+          credentials.session !== pendingCredentials?.session || credentials.csrf !== pendingCredentials.csrf
+        );
+        if (credentials !== null && (credentialsChanged || this.now().getTime() >= nextValidationAt)) {
           this.update(flowId, "VALIDATING", "已取得登录会话，正在验证账号…", null, null);
-          const auth = await this.sessions.importSession(credentials, persistence);
+          let auth: SessionAuthStatus;
+          try {
+            auth = await this.sessions.importSession(credentials, persistence);
+          } catch (error) {
+            throwIfAborted(signal);
+            if (!(error instanceof AppError) || error.code !== "AUTH_EXPIRED") throw error;
+            // Social login can create an anonymous session before its OAuth callback completes.
+            // Keep watching cookies, and retry unchanged sessions at a bounded rate as well.
+            pendingCredentials = credentials;
+            nextValidationAt = this.now().getTime() + this.validationRetryIntervalMs;
+            this.update(flowId, "WAITING_FOR_USER", "登录尚未完成，请继续在浏览器中完成登录或安全校验。", null, null);
+            await abortableDelay(this.pollIntervalMs, signal);
+            continue;
+          }
           if (signal.aborted) {
             if (this.status.flowId === flowId) this.sessions.invalidateIfCurrent(credentials);
             throwIfAborted(signal);

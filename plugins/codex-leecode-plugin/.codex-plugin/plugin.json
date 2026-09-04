@@ -6,8 +6,8 @@
     "name": "zyh802",
     "url": "https://github.com/zyh802"
   },
-  "homepage": "https://github.com/zyh802/codex-leecode-plugin",
-  "repository": "https://github.com/zyh802/codex-leecode-plugin",
+  "homepage": "https://github.com/zyh802/codex-leetcode-plugin",
+  "repository": "https://github.com/zyh802/codex-leetcode-plugin",
   "keywords": [
     "leetcode",
     "coding",
@@ -28,7 +28,7 @@
       "Write",
       "Interactive"
     ],
-    "websiteURL": "https://github.com/zyh802/codex-leecode-plugin",
+    "websiteURL": "https://github.com/zyh802/codex-leetcode-plugin",
     "defaultPrompt": [
       "\u6253\u5f00\u672c\u5730\u529b\u6263\u9898\u5e93\u5e76\u5e2e\u6211\u9009\u4e00\u9053\u9898\u3002",
       "\u8fd0\u884c\u5f53\u524d\u529b\u6263\u89e3\u7b54\u5e76\u89e3\u91ca\u7ed3\u679c\u3002",

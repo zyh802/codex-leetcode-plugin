@@ -66,6 +66,43 @@ describe("BrowserLoginService", () => {
     expect(sessions.getCredentials()).toBeUndefined();
   });
 
+  it("keeps an unsigned social-login session open until the account is signed in", async () => {
+    const adapter = new LeetCodeCnAdapter({} as never);
+    let signedIn = false;
+    const getAuthStatus = vi.spyOn(adapter, "getAuthStatus").mockImplementation(async () => ({
+      signedIn,
+      username: signedIn ? "wechat-user" : null,
+      premium: false,
+    }));
+    const sessions = new SessionService(new MemorySecretStore(), adapter);
+    const browser = fakeBrowser([
+      { name: "LEETCODE_SESSION", value: "social-login-session" },
+      { name: "csrftoken", value: "csrf-value-long-enough" },
+    ]);
+    const service = new BrowserLoginService(sessions, { launch: async () => browser }, {
+      pollIntervalMs: 1,
+      createProfileDirectory: async () => "/tmp/codex-leetcode-social-profile",
+      removeProfileDirectory: async () => undefined,
+      validationRetryIntervalMs: 5,
+    });
+
+    const started = service.start("memory");
+    try {
+      await vi.waitFor(() => expect(getAuthStatus).toHaveBeenCalled());
+      expect(service.getStatus(started.flowId!)).toMatchObject({ state: "WAITING_FOR_USER" });
+      expect(browser.close).not.toHaveBeenCalled();
+      expect(sessions.getCredentials()).toBeUndefined();
+
+      // The server may authenticate an existing session without replacing its cookies.
+      signedIn = true;
+      const status = await waitForTerminal(service, started.flowId!);
+      expect(status).toMatchObject({ state: "SUCCEEDED", username: "wechat-user" });
+      expect(browser.close).toHaveBeenCalledOnce();
+    } finally {
+      await service.close();
+    }
+  });
+
   it("does not retain credentials when cancellation happens during account validation", async () => {
     const adapter = new LeetCodeCnAdapter({} as never);
     let finishValidation!: (value: { signedIn: true; username: string; premium: false }) => void;
@@ -93,10 +130,49 @@ describe("BrowserLoginService", () => {
     expect(sessions.getCredentials()).toBeUndefined();
   });
 
-  it("times out without persisting a partial browser session", async () => {
+  it("limits anonymous-session validation but checks changed cookies without waiting for the retry interval", async () => {
+    vi.useFakeTimers();
     const adapter = new LeetCodeCnAdapter({} as never);
+    const getAuthStatus = vi.spyOn(adapter, "getAuthStatus").mockResolvedValue({
+      signedIn: false, username: null, premium: false,
+    });
     const sessions = new SessionService(new MemorySecretStore(), adapter);
-    const browser = fakeBrowser([{ name: "csrftoken", value: "csrf-value-long-enough" }]);
+    const cookies = [
+      { name: "LEETCODE_SESSION", value: "anonymous-session" },
+      { name: "csrftoken", value: "csrf-value-long-enough" },
+    ];
+    const browser = fakeBrowser(cookies);
+    const service = new BrowserLoginService(sessions, { launch: async () => browser }, {
+      pollIntervalMs: 100,
+      createProfileDirectory: async () => "/tmp/codex-leetcode-retry-profile",
+      removeProfileDirectory: async () => undefined,
+    });
+    const started = service.start("memory");
+    try {
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(getAuthStatus).toHaveBeenCalledTimes(1);
+      expect(browser.close).not.toHaveBeenCalled();
+      cookies[0]!.value = "new-anonymous-session";
+      await vi.advanceTimersByTimeAsync(100);
+      expect(getAuthStatus).toHaveBeenCalledTimes(2);
+      expect(service.cancel(started.flowId!).state).toBe("CANCELLED");
+      await service.close();
+      expect(browser.close).toHaveBeenCalledOnce();
+      expect(sessions.getCredentials()).toBeUndefined();
+    } finally {
+      await service.close();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([false, true])("times out without persisting a partial browser session (session cookie: %s)", async (hasSession) => {
+    const adapter = new LeetCodeCnAdapter({} as never);
+    vi.spyOn(adapter, "getAuthStatus").mockResolvedValue({ signedIn: false, username: null, premium: false });
+    const sessions = new SessionService(new MemorySecretStore(), adapter);
+    const browser = fakeBrowser([
+      { name: "csrftoken", value: "csrf-value-long-enough" },
+      ...(hasSession ? [{ name: "LEETCODE_SESSION", value: "anonymous-session" }] : []),
+    ]);
     const service = new BrowserLoginService(sessions, { launch: async () => browser }, {
       timeoutMs: 20,
       pollIntervalMs: 2,
