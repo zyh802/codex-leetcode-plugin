@@ -24,7 +24,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        # Node 22.22.2 bundles node-gyp 11.5.0, which cannot detect VS 2026.
+        # Keep VS 2022 for the better-sqlite3 native build.
+        os: [macos-latest, windows-2022]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
