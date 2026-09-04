@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Icon } from "@/components/Icon/Icon.js";
 import { confirmService } from "@/components/ConfirmDialog/ConfirmService.js";
 import { authService, useAuthStore } from "@/services/auth/AuthService.js";
 import { catalogService } from "@/services/catalog/CatalogService.js";
@@ -26,7 +27,7 @@ export function AuthSettings(): React.JSX.Element {
   };
   return (
     <section id="auth-settings" tabIndex={-1} className={styles.card} aria-labelledby="auth-heading">
-      <header className={styles.cardHeader}><span className={styles.icon}>◎</span><div><small>账号</small><h2 id="auth-heading">{auth.status.signedIn ? `已登录：${auth.status.username ?? "力扣账号"}` : "登录力扣"}</h2><p role="status">{auth.message}</p></div><span className={`${styles.badge} ${auth.status.signedIn ? styles.signedIn : ""}`}>{auth.status.signedIn ? "已登录" : "未登录"}</span></header>
+      <header className={styles.cardHeader}><span className={styles.icon}><Icon name="account" size="card" /></span><div><small>账号</small><h2 id="auth-heading">{auth.status.signedIn ? `已登录：${auth.status.username ?? "力扣账号"}` : "登录力扣"}</h2><p role="status">{auth.message}</p></div><span className={`${styles.badge} ${auth.status.signedIn ? styles.signedIn : ""}`}>{auth.status.signedIn ? "已登录" : "未登录"}</span></header>
       <div className={styles.authActions}>
         {!auth.status.signedIn ? <label><input type="checkbox" checked={auth.persistence === "memory"} disabled={active} onChange={(event) => authService.setPersistence(event.target.checked ? "memory" : "system")} /> 仅本次运行，不保存登录凭据</label> : null}
         <div className="button-row">

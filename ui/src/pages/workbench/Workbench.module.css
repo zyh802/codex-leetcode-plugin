@@ -53,7 +53,7 @@
 .accountMenu { position: relative; min-width: 0; }
 .accountPopover { display: grid; position: absolute; z-index: 30; right: 0; bottom: calc(100% + 7px); left: 0; gap: 2px; padding: 6px; border: 1px solid var(--border-strong); border-radius: 11px; background: var(--surface); box-shadow: var(--shadow-lg); }
 .accountPopover button { min-height: 36px; padding: 7px 9px; }
-.accountPopover button > span { display: grid; width: 24px; height: 24px; flex: 0 0 auto; place-items: center; font-size: 13px; }
+.accountPopover button > span { display: grid; width: 24px; height: 24px; flex: 0 0 auto; place-items: center; }
 .accountPopover button > strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .accountAvatar { display: grid; width: 28px; height: 28px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: var(--accent-soft); color: var(--accent-strong); font-size: 10px; font-weight: 760; }
 .accountDetails { display: grid; min-width: 0; gap: 1px; }

@@ -23,6 +23,9 @@
     "test:e2e": "npm run build && playwright test",
     "smoke:live": "npm run build && node scripts/live-smoke.mjs",
     "smoke:mcp": "npm run build && node scripts/mcp-smoke.mjs",
+    "build:marketplace": "npm run build && node scripts/build-marketplace.mjs",
+    "check:marketplace": "npm run build && node scripts/build-marketplace.mjs --check",
+    "smoke:marketplace": "node scripts/marketplace-smoke.mjs",
     "check": "npm run lint:boundaries && npm run typecheck && npm test && npm run build && npm run check:bundle"
   },
   "dependencies": {
@@ -30,6 +33,7 @@
     "@napi-rs/keyring": "^2.0.0",
     "better-sqlite3": "^13.0.3",
     "eventemitter3": "^5.0.4",
+    "lucide-react": "^1.25.0",
     "playwright-core": "^1.62.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -47,7 +51,10 @@
     "@types/react-dom": "^19.2.7",
     "@types/sanitize-html": "^2.16.1",
     "@vitejs/plugin-react": "^6.1.1",
+    "esbuild": "^0.28.2",
     "jsdom": "^30.0.1",
+    "proper-lockfile": "^4.1.2",
+    "tar": "^7.5.22",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2",
     "vite": "^8.2.2",

@@ -15,4 +15,23 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      - run: npm run check:marketplace
+      - run: npm run smoke:marketplace
+      - run: npx playwright install --with-deps chrome
       - run: npm run test:e2e
+
+  marketplace-platforms:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.2
+          cache: npm
+      - run: npm ci
+      - run: npx vitest run tests/runtime-bootstrap.test.ts
+      - run: npm run smoke:marketplace

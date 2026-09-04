@@ -1,0 +1,20 @@
+{
+  "name": "codex-leetcode",
+  "interface": {
+    "displayName": "Codex Leetcode"
+  },
+  "plugins": [
+    {
+      "name": "codex-leecode-plugin",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex-leecode-plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

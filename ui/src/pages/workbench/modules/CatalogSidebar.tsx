@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Icon } from "@/components/Icon/Icon.js";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue.js";
 import { SEARCH_DEBOUNCE_MS } from "@/config/constants.js";
 import { catalogService, useCatalogStore } from "@/services/catalog/CatalogService.js";
@@ -91,8 +92,8 @@ export function CatalogSidebar({ collapsed, onCollapsedChange }: CatalogSidebarP
           </button>
           {accountMenuOpen ? (
             <div className={styles.accountPopover} role="menu" aria-label="用户菜单">
-              <button type="button" role="menuitem" onClick={() => { setAccountMenuOpen(false); routerService.navigate("settings"); }}><span aria-hidden="true">⚙</span><strong>设置</strong></button>
-              <button type="button" role="menuitem" disabled={sync.busy} onClick={() => { setAccountMenuOpen(false); accountButtonReference.current?.focus(); void syncService.synchronize(); }}><span aria-hidden="true">↻</span><strong>同步题库</strong></button>
+              <button type="button" role="menuitem" onClick={() => { setAccountMenuOpen(false); routerService.navigate("settings"); }}><span><Icon name="settings" /></span><strong>设置</strong></button>
+              <button type="button" role="menuitem" disabled={sync.busy} onClick={() => { setAccountMenuOpen(false); accountButtonReference.current?.focus(); void syncService.synchronize(); }}><span><Icon name="sync" /></span><strong>同步题库</strong></button>
             </div>
           ) : null}
         </div>

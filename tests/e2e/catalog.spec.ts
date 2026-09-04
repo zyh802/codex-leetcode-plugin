@@ -78,6 +78,32 @@ test("keeps narrow catalog controls within the sidebar", async ({ page }) => {
   expect(columns.trim().split(/\s+/u)).toHaveLength(1);
 });
 
+test("uses readable SVG icons in the account menu and settings cards", async ({ page }, testInfo) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "用户 codex-user" }).click();
+  for (const label of ["设置", "同步题库"]) {
+    const icon = page.getByRole("menuitem", { name: label, exact: true }).locator("svg");
+    await expect(icon).toBeVisible();
+    await expect(icon).toHaveCSS("width", "20px");
+    await expect(icon).toHaveCSS("height", "20px");
+    await expect(icon).toHaveAttribute("aria-hidden", "true");
+  }
+  await page.getByRole("menu", { name: "用户菜单" }).screenshot({ path: testInfo.outputPath("account-menu.png") });
+  await page.getByRole("menuitem", { name: "设置", exact: true }).click();
+  for (const width of [1280, 420]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const label of ["已登录：codex-user", "解答目录", "前端进程"]) {
+      const icon = page.getByRole("region", { name: label }).locator("header svg");
+      await expect(icon).toBeVisible();
+      await expect(icon).toHaveCSS("width", "24px");
+      await expect(icon).toHaveCSS("height", "24px");
+      await expect(icon).toHaveCSS("stroke-width", "1.8px");
+      await expect(icon).toHaveAttribute("aria-hidden", "true");
+    }
+    await page.screenshot({ path: testInfo.outputPath(`settings-${width}.png`) });
+  }
+});
+
 test("completes browser login and closes only the local frontend", async ({ page, request }) => {
   await request.get("/__test/signout");
   await page.goto("/#/settings");
