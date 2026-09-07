@@ -24,7 +24,8 @@ describe("LeetCodeDatabase", () => {
         questionId: "1",
         frontendId: "1",
         slug: "two-sum",
-        title: "两数之和",
+        title: "Two Sum",
+        translatedTitle: "两数之和",
         difficulty: "Easy",
         paidOnly: false,
         totalAccepted: 100,
@@ -38,13 +39,14 @@ describe("LeetCodeDatabase", () => {
         categories: [{ category: "algorithms", count: 1 }],
       });
       expect(database.searchProblems("两数", 10)).toHaveLength(1);
+      expect(database.searchProblems("Two Sum", 10)).toMatchObject([{ title: "两数之和" }]);
       expect(database.searchProblems("two-sum", 10)).toHaveLength(1);
       expect(database.searchProblems("", 10, 1)).toHaveLength(0);
       expect(database.getCatalogProblem(1)).toMatchObject({
         questionId: "1",
         frontendId: "1",
         slug: "two-sum",
-        title: "两数之和",
+        title: "Two Sum",
         paidOnly: false,
       });
       const inspection = new Database(path.join(directory, "test.db"), { readonly: true });
@@ -131,6 +133,7 @@ function catalogProblem(frontendId: string, slug: string) {
     frontendId,
     slug,
     title: slug,
+    translatedTitle: null,
     difficulty: "Easy" as const,
     paidOnly: false,
     totalAccepted: null,

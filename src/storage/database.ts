@@ -29,13 +29,14 @@ export class LeetCodeDatabase {
   upsertCatalog(problems: CatalogProblem[]): number {
     const upsert = this.db.prepare(`
       INSERT INTO problems (
-        endpoint_id, question_id, frontend_id, slug, title, difficulty,
-        paid_only, total_accepted, total_submitted, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        endpoint_id, question_id, frontend_id, slug, title, translated_title,
+        difficulty, paid_only, total_accepted, total_submitted, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(endpoint_id, question_id) DO UPDATE SET
         frontend_id = excluded.frontend_id,
         slug = excluded.slug,
         title = excluded.title,
+        translated_title = excluded.translated_title,
         difficulty = excluded.difficulty,
         paid_only = excluded.paid_only,
         total_accepted = excluded.total_accepted,
@@ -65,6 +66,7 @@ export class LeetCodeDatabase {
           item.frontendId,
           item.slug,
           item.title,
+          item.translatedTitle ?? null,
           item.difficulty,
           item.paidOnly ? 1 : 0,
           item.totalAccepted,
@@ -180,10 +182,11 @@ export class LeetCodeDatabase {
         ? = '' OR
         p.frontend_id LIKE ? ESCAPE '\\' OR
         p.slug LIKE ? ESCAPE '\\' OR
-        p.title LIKE ? ESCAPE '\\'
+        p.title LIKE ? ESCAPE '\\' OR
+        p.translated_title LIKE ? ESCAPE '\\'
       )
     `];
-    const parameters: unknown[] = [ENDPOINT_CN, normalized, pattern, pattern, pattern];
+    const parameters: unknown[] = [ENDPOINT_CN, normalized, pattern, pattern, pattern, pattern];
     if (filters.difficulties && filters.difficulties.length > 0) {
       where.push(`p.difficulty IN (${placeholders(filters.difficulties.length)})`);
       parameters.push(...filters.difficulties);
@@ -209,7 +212,8 @@ export class LeetCodeDatabase {
     if (filters.favorite) where.push("COALESCE(ups.favorite, 0) = 1");
     parameters.push(limit, offset);
     const rows = this.db.prepare(`
-      SELECT p.id, p.frontend_id AS frontendId, p.slug, p.title, p.difficulty,
+      SELECT p.id, p.frontend_id AS frontendId, p.slug,
+             COALESCE(p.translated_title, p.title) AS title, p.difficulty,
              p.paid_only AS paidOnly, ups.status, COALESCE(ups.favorite, 0) AS favorite,
              GROUP_CONCAT(pc.category) AS categories
       FROM problems p

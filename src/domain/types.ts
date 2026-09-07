@@ -20,6 +20,7 @@ export interface CatalogProblem {
   frontendId: string;
   slug: string;
   title: string;
+  translatedTitle: string | null;
   difficulty: ProblemDifficulty;
   paidOnly: boolean;
   totalAccepted: number | null;

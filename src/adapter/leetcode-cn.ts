@@ -38,6 +38,18 @@ const catalogSchema = z.object({
   ),
 });
 
+const translatedTitleCatalogSchema = z.object({
+  data: z.object({
+    problemsetQuestionListV2: z.object({
+      totalLength: z.number().int().nonnegative(),
+      questions: z.array(z.object({
+        titleSlug: z.string(),
+        translatedTitle: z.string().nullable().optional(),
+      })),
+    }),
+  }),
+});
+
 const questionSchema = z.object({
   questionId: z.string(),
   questionFrontendId: z.string(),
@@ -104,6 +116,8 @@ const judgeCheckSchema = z.object({
 }).passthrough();
 
 export class LeetCodeCnAdapter {
+  private translatedTitlesPromise: Promise<Map<string, string>> | undefined;
+
   constructor(
     private readonly http: HttpClient,
     private readonly circuitBreaker = new AdapterCircuitBreaker(),
@@ -111,9 +125,48 @@ export class LeetCodeCnAdapter {
 
   async getCatalog(category: ProblemCategory, credentials?: SessionCredentials): Promise<CatalogProblem[]> {
     return this.circuitBreaker.execute(async () => {
-      const raw = await this.http.getJson(`/api/problems/${category}/`, credentials === undefined ? {} : { credentials });
-      return parseCatalogResponse(raw, category);
+      const [raw, translatedTitles] = await Promise.all([
+        this.http.getJson(`/api/problems/${category}/`, credentials === undefined ? {} : { credentials }),
+        this.getTranslatedTitles(),
+      ]);
+      return parseCatalogResponse(raw, category).map((problem) => ({
+        ...problem,
+        translatedTitle: translatedTitles.get(problem.slug) ?? null,
+      }));
     });
+  }
+
+  private async getTranslatedTitles(): Promise<Map<string, string>> {
+    const pending = this.translatedTitlesPromise ?? this.fetchTranslatedTitles();
+    this.translatedTitlesPromise = pending;
+    try {
+      return await pending;
+    } catch (error) {
+      if (this.translatedTitlesPromise === pending) this.translatedTitlesPromise = undefined;
+      throw error;
+    }
+  }
+
+  private async fetchTranslatedTitles(): Promise<Map<string, string>> {
+    const titles = new Map<string, string>();
+    let skip = 0;
+    let totalLength: number | undefined;
+    do {
+      const page = parseTranslatedTitleCatalogResponse(await this.http.postJson("/graphql/", {
+        operationName: "catalogTranslatedTitles",
+        variables: { skip, limit: TRANSLATED_TITLE_PAGE_SIZE },
+        query: TRANSLATED_TITLE_QUERY,
+      }, { retry: "safe" }));
+      totalLength ??= page.totalLength;
+      if (page.questions.length === 0 && skip < totalLength) {
+        throw new AppError("UPSTREAM_SCHEMA_CHANGED", "LeetCode translated title catalog ended unexpectedly.");
+      }
+      for (const question of page.questions) {
+        if (question.translatedTitle) titles.set(question.titleSlug, question.translatedTitle);
+      }
+      skip += page.questions.length;
+    } while (skip < totalLength);
+    return titles;
   }
 
   async getQuestionDetail(slug: string, credentials?: SessionCredentials): Promise<QuestionDetail> {
@@ -253,6 +306,7 @@ export function parseCatalogResponse(raw: unknown, category: ProblemCategory): C
     frontendId: String(entry.stat.frontend_question_id),
     slug: entry.stat.question__title_slug,
     title: entry.stat.question__title,
+    translatedTitle: null,
     difficulty: difficultyByLevel[entry.difficulty.level],
     paidOnly: entry.paid_only,
     totalAccepted: entry.stat.total_acs ?? null,
@@ -261,6 +315,23 @@ export function parseCatalogResponse(raw: unknown, category: ProblemCategory): C
     ...(entry.is_favor === undefined || entry.is_favor === null ? {} : { favorite: entry.is_favor }),
     category,
   }));
+}
+
+export function parseTranslatedTitleCatalogResponse(raw: unknown): {
+  totalLength: number;
+  questions: Array<{ titleSlug: string; translatedTitle: string | null }>;
+} {
+  const parsed = translatedTitleCatalogSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new AppError("UPSTREAM_SCHEMA_CHANGED", "LeetCode translated title catalog schema changed.", false, parsed.error.issues);
+  }
+  return {
+    totalLength: parsed.data.data.problemsetQuestionListV2.totalLength,
+    questions: parsed.data.data.problemsetQuestionListV2.questions.map((question) => ({
+      titleSlug: question.titleSlug,
+      translatedTitle: question.translatedTitle ?? null,
+    })),
+  };
 }
 
 export function parseQuestionResponse(raw: unknown, requestedSlug: string): QuestionDetail {
@@ -349,6 +420,16 @@ const QUESTION_QUERY = `
       metaData
       enableRunCode
       topicTags { name slug translatedName }
+    }
+  }
+`;
+
+const TRANSLATED_TITLE_PAGE_SIZE = 100;
+const TRANSLATED_TITLE_QUERY = `
+  query catalogTranslatedTitles($skip: Int!, $limit: Int!) {
+    problemsetQuestionListV2(skip: $skip, limit: $limit) {
+      totalLength
+      questions { titleSlug translatedTitle }
     }
   }
 `;

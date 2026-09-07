@@ -2,10 +2,31 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { ProblemService } from "../src/problem/problem-service.js";
+import { ProblemService, renderProblemContent } from "../src/problem/problem-service.js";
 import { LeetCodeDatabase } from "../src/storage/database.js";
 
 describe("ProblemService", () => {
+  it("renders Markdown statements as safe HTML", () => {
+    const html = renderProblemContent([
+      "小扣有一个 `root`。",
+      "",
+      "**示例 1：**",
+      "> 输入：`root = [5,2,3,4], k = 2`",
+      "",
+      "+ `1 <= k <= 10`",
+      "",
+      "![示意图](https://pic.leetcode.cn/example.png)",
+      "<script>alert('unsafe')</script>",
+    ].join("\n"));
+
+    expect(html).toContain("<strong>示例 1：</strong>");
+    expect(html).toContain("<blockquote>");
+    expect(html).toContain("<code>root = [5,2,3,4], k = 2</code>");
+    expect(html).toContain("<ul>");
+    expect(html).toContain('<img src="https://pic.leetcode.cn/example.png" alt="示意图" />');
+    expect(html).not.toContain("script");
+  });
+
   it("fetches details on every open and never persists the response", async () => {
     const directory = mkdtempSync(path.join(tmpdir(), "codex-leetcode-problem-"));
     const database = new LeetCodeDatabase(path.join(directory, "test.db"));
@@ -15,6 +36,7 @@ describe("ProblemService", () => {
         frontendId: "1",
         slug: "two-sum",
         title: "两数之和",
+        translatedTitle: "两数之和",
         difficulty: "Easy",
         paidOnly: false,
         totalAccepted: 100,
@@ -44,6 +66,7 @@ describe("ProblemService", () => {
     try {
       database.upsertCatalog([{
         questionId: "1", frontendId: "1", slug: "two-sum", title: "两数之和",
+        translatedTitle: "两数之和",
         difficulty: "Easy", paidOnly: false, totalAccepted: 1, totalSubmitted: 2,
         status: null, category: "algorithms",
       }]);

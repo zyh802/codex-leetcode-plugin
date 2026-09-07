@@ -221,6 +221,7 @@ describe("RemoteJudgeService confirmation", () => {
       seedProblem(database);
       database.upsertCatalog([{
         questionId: "2", frontendId: "2", slug: "add-two-numbers", title: "Add Two Numbers",
+        translatedTitle: "两数相加",
         difficulty: "Medium", paidOnly: false, totalAccepted: null, totalSubmitted: null,
         status: null, category: "algorithms",
       }]);
@@ -270,6 +271,7 @@ function sessionStub() {
 function seedProblem(database: LeetCodeDatabase): void {
   database.upsertCatalog([{
     questionId: "1", frontendId: "1", slug: "two-sum", title: "Two Sum",
+    translatedTitle: "两数之和",
     difficulty: "Easy", paidOnly: false, totalAccepted: 1, totalSubmitted: 2,
     status: null, category: "algorithms",
   }]);

@@ -1,6 +1,6 @@
 {
   "name": "codex-leecode-plugin",
-  "version": "0.1.0+codex.20260904090049",
+  "version": "0.1.0+codex.20260907034158",
   "description": "Browse a complete local LeetCode catalog, open selected problem details live, edit solutions, run and submit code, and request Codex reviews.",
   "author": {
     "name": "zyh802",

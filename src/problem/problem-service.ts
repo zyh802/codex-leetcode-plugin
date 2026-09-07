@@ -1,4 +1,5 @@
 import sanitizeHtml from "sanitize-html";
+import { marked } from "marked";
 import type { LeetCodeCnAdapter } from "../adapter/leetcode-cn.js";
 import type { SessionCredentials } from "../adapter/http-client.js";
 import { AppError } from "../core/errors.js";
@@ -36,11 +37,11 @@ export class ProblemService {
 
     const contents: ProblemDetailView["contents"] = [];
     if (detail.content !== null) {
-      const html = sanitizeHtml(detail.content);
+      const html = renderProblemContent(detail.content);
       contents.push({ locale: "en", html, plainText: htmlToPlainText(html) });
     }
     if (detail.translatedContent !== null) {
-      const html = sanitizeHtml(detail.translatedContent);
+      const html = renderProblemContent(detail.translatedContent);
       contents.push({ locale: "zh-CN", html, plainText: htmlToPlainText(html) });
     }
 
@@ -72,6 +73,14 @@ export class ProblemService {
       starterCode: template.starterCode,
     };
   }
+}
+
+export function renderProblemContent(content: string): string {
+  const rendered = marked.parse(content, { async: false, gfm: true });
+  return sanitizeHtml(rendered, {
+    allowedTags: [...sanitizeHtml.defaults.allowedTags, "img"],
+    allowedSchemesByTag: { img: ["https"] },
+  });
 }
 
 function assertIdentity(questionId: string, slug: string, detail: QuestionDetail): void {

@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { parseCatalogResponse, parseQuestionResponse } from "../src/adapter/leetcode-cn.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  LeetCodeCnAdapter,
+  parseCatalogResponse,
+  parseQuestionResponse,
+  parseTranslatedTitleCatalogResponse,
+} from "../src/adapter/leetcode-cn.js";
 
 describe("LeetCode CN adapter parsing", () => {
   it("maps a catalog entry into the domain model", () => {
@@ -32,6 +37,7 @@ describe("LeetCode CN adapter parsing", () => {
         frontendId: "1",
         slug: "two-sum",
         title: "Two Sum",
+        translatedTitle: null,
         difficulty: "Easy",
         paidOnly: false,
         totalAccepted: 100,
@@ -41,6 +47,54 @@ describe("LeetCode CN adapter parsing", () => {
         category: "algorithms",
       },
     ]);
+  });
+
+  it("loads all translated-title pages once and adds Chinese titles to each catalog", async () => {
+    const catalogResponse = {
+      num_total: 1,
+      stat_status_pairs: [{
+        stat: {
+          question_id: 1,
+          frontend_question_id: "1",
+          question__title: "Two Sum",
+          question__title_slug: "two-sum",
+        },
+        difficulty: { level: 1 },
+        paid_only: false,
+      }],
+    };
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      titleSlug: index === 0 ? "two-sum" : `problem-${index}`,
+      translatedTitle: index === 0 ? "两数之和" : `题目 ${index}`,
+    }));
+    const getJson = vi.fn().mockResolvedValue(catalogResponse);
+    const postJson = vi.fn()
+      .mockResolvedValueOnce(translatedTitleResponse(101, firstPage))
+      .mockResolvedValueOnce(translatedTitleResponse(101, [{ titleSlug: "last-problem", translatedTitle: "最后一题" }]));
+    const adapter = new LeetCodeCnAdapter({ getJson, postJson } as never);
+
+    await expect(adapter.getCatalog("algorithms")).resolves.toMatchObject([
+      { title: "Two Sum", translatedTitle: "两数之和" },
+    ]);
+    await expect(adapter.getCatalog("database")).resolves.toMatchObject([
+      { title: "Two Sum", translatedTitle: "两数之和" },
+    ]);
+
+    expect(postJson).toHaveBeenCalledTimes(2);
+    expect(postJson.mock.calls.map((call) => call[1].variables.skip)).toEqual([0, 100]);
+  });
+
+  it("parses nullable translated titles from the lightweight catalog", () => {
+    expect(parseTranslatedTitleCatalogResponse(translatedTitleResponse(2, [
+      { titleSlug: "two-sum", translatedTitle: "两数之和" },
+      { titleSlug: "english-only", translatedTitle: null },
+    ]))).toEqual({
+      totalLength: 2,
+      questions: [
+        { titleSlug: "two-sum", translatedTitle: "两数之和" },
+        { titleSlug: "english-only", translatedTitle: null },
+      ],
+    });
   });
 
   it("parses question templates, metadata, and translated tags", () => {
@@ -82,3 +136,10 @@ describe("LeetCode CN adapter parsing", () => {
     );
   });
 });
+
+function translatedTitleResponse(
+  totalLength: number,
+  questions: Array<{ titleSlug: string; translatedTitle: string | null }>,
+) {
+  return { data: { problemsetQuestionListV2: { totalLength, questions } } };
+}

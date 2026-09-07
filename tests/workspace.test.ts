@@ -78,6 +78,7 @@ function seedProblem(database: LeetCodeDatabase): void {
     frontendId: "1",
     slug: "two-sum",
     title: "Two Sum",
+    translatedTitle: "两数之和",
     difficulty: "Easy",
     paidOnly: false,
     totalAccepted: 100,
